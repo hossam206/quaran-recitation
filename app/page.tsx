@@ -35,10 +35,16 @@ export default function Home() {
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
   const [revealedWords, setRevealedWords] = useState<WordStatus[]>([]);
   const [errorCount, setErrorCount] = useState(0);
-  const [accumulatedText, setAccumulatedText] = useState("");
   const [debugSpokenText, setDebugSpokenText] = useState("");
   const [debugNormalizedSpoken, setDebugNormalizedSpoken] = useState("");
   const [debugExpectedWord, setDebugExpectedWord] = useState("");
+
+  // Refs to allow the speech recognition closure to ALWAYS see the latest state
+  const versesRef = useRef<VerseData[]>([]);
+  const vIdxRef = useRef(0);
+  const wIdxRef = useRef(0);
+  const revealedWordsRef = useRef<WordStatus[]>([]);
+  const isListeningRef = useRef(false);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
@@ -71,22 +77,30 @@ export default function Home() {
   useEffect(() => {
     if (selectedSurah) {
       setLoadingVerses(true);
+      // Reset state and refs
       setCurrentVerseIndex(0);
       setCurrentWordIndex(0);
       setRevealedWords([]);
       setErrorCount(0);
-      setAccumulatedText("");
       setDebugSpokenText("");
-      setIsSidebarOpen(false); // Close sidebar on mobile after selection
+      setDebugNormalizedSpoken("");
+      setDebugExpectedWord("");
+      setIsSidebarOpen(false);
+
+      vIdxRef.current = 0;
+      wIdxRef.current = 0;
+      revealedWordsRef.current = [];
 
       fetch(`/api/verses?surah=${selectedSurah}`)
         .then((res) => res.json())
         .then((data) => {
           setVerses(data);
+          versesRef.current = data;
           setLoadingVerses(false);
-          // Auto-start recording!
+
+          // Auto-start recording
           setTimeout(() => {
-            if (!isListening && recognitionRef.current === null) {
+            if (!isListeningRef.current) {
               startRecording();
             }
           }, 500);
@@ -97,77 +111,125 @@ export default function Home() {
         });
     } else {
       setVerses([]);
+      versesRef.current = [];
     }
   }, [selectedSurah]);
 
-  const checkNextWord = useCallback((spokenText: string) => {
-    if (!verses.length) return;
+  // Sync state with refs for the UI components
+  useEffect(() => {
+    vIdxRef.current = currentVerseIndex;
+    wIdxRef.current = currentWordIndex;
+    revealedWordsRef.current = revealedWords;
+    isListeningRef.current = isListening;
+  }, [currentVerseIndex, currentWordIndex, revealedWords, isListening]);
+
+  const processSpokenText = useCallback((spokenText: string) => {
+    const localVerses = versesRef.current;
+    if (!localVerses.length) return;
 
     const normalizedSpoken = normalizeArabic(spokenText);
     const spokenWords = normalizedSpoken.split(/\s+/).filter(Boolean);
+    if (!spokenWords.length) return;
 
-    // Debug: Show normalized words
+    // We only care about the LATEST few words spoken to keep it responsive
+    // and avoid matching old parts of the transcript.
+    const latestSpokenWord = spokenWords[spokenWords.length - 1];
+
     setDebugNormalizedSpoken(spokenWords.join(" "));
 
-    let vIdx = currentVerseIndex;
-    let wIdx = currentWordIndex; // position in current verse
-    let spokenIdx = 0; // position in spoken words array
-    const newReveals: WordStatus[] = [];
-    let newErrors = 0;
+    // Logic: Look ahead in the next ~5 words to find a match for the latest spoken word
+    let foundMatch = false;
+    let matchVIdx = vIdxRef.current;
+    let matchWIdx = wIdxRef.current;
 
-    // اكشف كل الكلمات اللي اتقالت دفعة واحدة!
-    while (vIdx < verses.length && spokenIdx < spokenWords.length) {
-      const currentVerse = verses[vIdx];
-      const normalizedExpected = normalizeArabic(currentVerse.text);
-      const expectedWords = normalizedExpected.split(/\s+/).filter(Boolean);
+    // Look ahead window
+    const windowSize = 8;
+    let checkedCount = 0;
 
-      if (wIdx >= expectedWords.length) {
-        // Finished this verse, move to next
-        vIdx++;
-        wIdx = 0;
+    let tempV = vIdxRef.current;
+    let tempW = wIdxRef.current;
+
+    const skippedReveals: WordStatus[] = [];
+
+    while (tempV < localVerses.length && checkedCount < windowSize) {
+      const verseText = localVerses[tempV].text;
+      const expectedWords = normalizeArabic(verseText).split(/\s+/).filter(Boolean);
+      const originalWords = verseText.split(/\s+/).filter(Boolean);
+
+      if (tempW >= expectedWords.length) {
+        tempV++;
+        tempW = 0;
         continue;
       }
 
-      const spokenWord = spokenWords[spokenIdx];
-      const expectedWord = expectedWords[wIdx];
+      const expectedWord = expectedWords[tempW];
+      setDebugExpectedWord(`البحث عن: "${expectedWord}" | المسموع: "${latestSpokenWord}"`);
 
-      // Debug: Show what we're comparing
-      if (spokenIdx === 0) {
-        setDebugExpectedWord(`المتوقع: "${expectedWord}" | المسموع: "${spokenWord}"`);
+      if (latestSpokenWord === expectedWord) {
+        // MATCH FOUND!
+        foundMatch = true;
+        matchVIdx = tempV;
+        matchWIdx = tempW;
+        break;
       }
 
-      const isCorrect = spokenWord === expectedWord;
+      // If no match yet, track this as a potentially skipped word
+      // but only if we haven't already revealed it
+      const alreadyRevealed = revealedWordsRef.current.some(rw =>
+        rw.verseNumber === localVerses[tempV].verse && rw.wordIndex === tempW
+      );
 
-      newReveals.push({
-        verseNumber: currentVerse.verse,
-        wordIndex: wIdx,
-        word: currentVerse.text.split(/\s+/)[wIdx],
-        isCorrect
-      });
+      if (!alreadyRevealed) {
+        skippedReveals.push({
+          verseNumber: localVerses[tempV].verse,
+          wordIndex: tempW,
+          word: originalWords[tempW],
+          isCorrect: false
+        });
+      }
 
-      if (!isCorrect) {
-        newErrors++;
+      tempW++;
+      checkedCount++;
+    }
+
+    if (foundMatch) {
+      // Commit the match and any skips before it
+      const currentOriginalWords = localVerses[matchVIdx].text.split(/\s+/).filter(Boolean);
+      const matchReveal: WordStatus = {
+        verseNumber: localVerses[matchVIdx].verse,
+        wordIndex: matchWIdx,
+        word: currentOriginalWords[matchWIdx],
+        isCorrect: true
+      };
+
+      const allNewReveals = [...skippedReveals, matchReveal];
+
+      // Update state
+      setRevealedWords(prev => [...prev, ...allNewReveals]);
+      setErrorCount(prev => prev + skippedReveals.length);
+
+      if (skippedReveals.length > 0) {
         playErrorSound();
       }
 
-      wIdx++;
-      spokenIdx++;
-    }
+      // Move pointer to AFTER the match
+      let nextW = matchWIdx + 1;
+      let nextV = matchVIdx;
 
-    // Update state with all new reveals at once
-    if (newReveals.length > 0) {
-      setRevealedWords(prev => [...prev, ...newReveals]);
-      setErrorCount(prev => prev + newErrors);
-
-      // Update position
-      if (vIdx > currentVerseIndex) {
-        setCurrentVerseIndex(vIdx);
-        setCurrentWordIndex(wIdx);
-      } else {
-        setCurrentWordIndex(wIdx);
+      // Check if we reached end of verse
+      const currentExpectedWords = normalizeArabic(localVerses[matchVIdx].text).split(/\s+/).filter(Boolean);
+      if (nextW >= currentExpectedWords.length) {
+        nextV++;
+        nextW = 0;
       }
+
+      setCurrentVerseIndex(nextV);
+      setCurrentWordIndex(nextW);
+
+      // Important: clear the transcript ref to avoid re-matching the same word
+      recognitionRef.current.abortTranscript = true;
     }
-  }, [verses, currentVerseIndex, currentWordIndex]);
+  }, []);
 
   const startRecording = useCallback(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -183,41 +245,38 @@ export default function Home() {
 
     recognition.onresult = (event: any) => {
       let interimTranscript = "";
-      let finalTranscript = accumulatedText;
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          finalTranscript += " " + transcript;
+          // If we matched something, we might want to "consume" the transcript
+          // But Web Speech keeps adding to the same buffer in continuous mode.
+          // So we process the whole thing and let the engine decide.
         } else {
           interimTranscript += transcript;
         }
       }
 
-      const fullText = (finalTranscript + " " + interimTranscript).trim();
-      setAccumulatedText(finalTranscript);
-      setDebugSpokenText(fullText);
+      // In this refined version, we use the raw result from the event
+      const latestTranscript = event.results[event.results.length - 1][0].transcript;
+      setDebugSpokenText(latestTranscript);
 
-      if (fullText) {
-        checkNextWord(fullText);
+      if (latestTranscript) {
+        processSpokenText(latestTranscript);
       }
     };
 
     recognition.onerror = (event: any) => {
-      console.error("Error:", event.error);
-      // Auto-restart on error (except when manually stopped)
+      console.error("Speech Error:", event.error);
       if (event.error !== 'aborted') {
         setTimeout(() => {
-          if (recognitionRef.current) {
-            startRecording();
-          }
+          if (isListeningRef.current) startRecording();
         }, 1000);
       }
     };
 
     recognition.onend = () => {
-      // Auto-restart when it stops (keeps mic always on)
-      if (recognitionRef.current && verses.length > 0) {
+      if (isListeningRef.current && versesRef.current.length > 0) {
         setTimeout(() => startRecording(), 500);
       }
     };
@@ -225,15 +284,18 @@ export default function Home() {
     recognition.start();
     recognitionRef.current = recognition;
     setIsListening(true);
-  }, [accumulatedText, checkNextWord, verses.length]);
+    isListeningRef.current = true;
+  }, [processSpokenText]);
 
   const toggleListening = useCallback(() => {
     if (isListening) {
       if (recognitionRef.current) {
+        recognitionRef.current.onend = null; // Prevent auto-restart
         recognitionRef.current.stop();
         recognitionRef.current = null;
       }
       setIsListening(false);
+      isListeningRef.current = false;
     } else {
       startRecording();
     }
@@ -241,15 +303,23 @@ export default function Home() {
 
   const handleReset = () => {
     if (recognitionRef.current) {
+      recognitionRef.current.onend = null;
       recognitionRef.current.stop();
+      recognitionRef.current = null;
     }
     setIsListening(false);
+    isListeningRef.current = false;
     setCurrentVerseIndex(0);
     setCurrentWordIndex(0);
     setRevealedWords([]);
-    setDebugSpokenText("");
     setErrorCount(0);
-    setAccumulatedText("");
+    setDebugSpokenText("");
+    setDebugNormalizedSpoken("");
+    setDebugExpectedWord("");
+
+    vIdxRef.current = 0;
+    wIdxRef.current = 0;
+    revealedWordsRef.current = [];
   };
 
   const filteredSurahs = useMemo(() => {
@@ -282,7 +352,7 @@ export default function Home() {
         <div className="w-10" />
       </div>
 
-      {/* Premium Sidebar (Responsive Drawer) */}
+      {/* Premium Sidebar */}
       <aside className={`
         fixed inset-0 z-50 md:relative md:z-20 w-full md:w-80 bg-white/70 backdrop-blur-xl border-l border-emerald-100 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out
         ${isSidebarOpen ? "translate-x-0" : "translate-x-full md:translate-x-0"}
@@ -298,10 +368,7 @@ export default function Home() {
                 <p className="text-[10px] text-emerald-600 font-medium uppercase tracking-tighter">Quran Recitation</p>
               </div>
             </div>
-            <button
-              onClick={() => setIsSidebarOpen(false)}
-              className="md:hidden p-2 text-emerald-400 hover:text-emerald-600 transition-colors"
-            >
+            <button onClick={() => setIsSidebarOpen(false)} className="md:hidden p-2 text-emerald-400">
               <CloseIcon className="w-6 h-6" />
             </button>
           </div>
@@ -337,13 +404,7 @@ export default function Home() {
                   {surah.englishName}
                 </span>
               </div>
-              <span className={`
-                w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold transition-colors
-                ${selectedSurah === surah.number
-                  ? "bg-white/20 text-white"
-                  : "bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100"
-                }
-              `}>
+              <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold ${selectedSurah === surah.number ? "bg-white/20" : "bg-emerald-50 text-emerald-600"}`}>
                 {surah.number}
               </span>
             </button>
@@ -352,12 +413,10 @@ export default function Home() {
       </aside>
 
       {/* Main Experience */}
-      <main className="flex-1 flex flex-col relative overflow-hidden h-full">
-        {/* Decorative Background Elements */}
+      <aside className="flex-1 flex flex-col relative overflow-hidden h-full">
         <div className="absolute top-0 right-0 w-64 md:w-96 h-64 md:h-96 bg-emerald-50 rounded-full blur-3xl opacity-50 -mr-32 md:-mr-48 -mt-32 md:-mt-48" />
         <div className="absolute bottom-0 left-0 w-64 md:w-96 h-64 md:h-96 bg-amber-50 rounded-full blur-3xl opacity-50 -ml-32 md:-ml-48 -mb-32 md:-mb-48" />
 
-        {/* Top Status */}
         {selectedSurah && (
           <nav className="relative z-10 px-4 md:px-8 py-4 md:py-6 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex flex-col items-center sm:items-start">
@@ -372,83 +431,73 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="flex gap-2 md:gap-4">
-              <StatusCard
-                label="الدقة"
-                value={`${revealedWords.length > 0 ? Math.round(((revealedWords.filter(w => w.isCorrect).length) / revealedWords.length) * 100) : 0}%`}
-                color="emerald"
-              />
+            <div className="flex gap-2">
+              <StatusCard label="الدقة" value={`${revealedWords.length > 0 ? Math.round(((revealedWords.filter(w => w.isCorrect).length) / revealedWords.length) * 100) : 0}%`} color="emerald" />
               <StatusCard label="أخطاء" value={errorCount} color="rose" />
             </div>
           </nav>
         )}
 
-        {/* Content Area */}
         <div className="flex-1 overflow-y-auto px-4 md:px-8 relative z-10 pb-40">
           <div className="max-w-4xl mx-auto py-6 md:py-8">
             {!selectedSurah ? (
-              <div className="h-full flex flex-col items-center justify-center text-center mt-10 md:mt-20 px-6">
-                <div className="w-24 md:w-32 h-24 md:h-32 bg-emerald-50 rounded-full flex items-center justify-center mb-6 md:mb-8">
-                  <span className="text-4xl md:text-6xl text-emerald-600">🕌</span>
+              <div className="h-full flex flex-col items-center justify-center text-center mt-10 px-6">
+                <div className="w-24 h-24 bg-emerald-50 rounded-full flex items-center justify-center mb-6">
+                  <span className="text-4xl text-emerald-600">🕌</span>
                 </div>
-                <h3 className="text-xl md:text-2xl font-bold text-emerald-900 mb-2">مرحباً بك في مُرَتِّل</h3>
-                <p className="text-emerald-600 max-w-xs leading-relaxed text-sm md:text-base">قم باختيار سورة من القائمة الجانبية للبدء في مراجعة تلاوتك</p>
+                <h3 className="text-xl font-bold text-emerald-900 mb-2">مرحباً بك في مُرَتِّل</h3>
+                <p className="text-emerald-600 max-w-xs text-sm">قم باختيار سورة للبدء في مراجعة تلاوتك</p>
               </div>
             ) : loadingVerses ? (
               <div className="h-full flex flex-col items-center justify-center mt-20">
                 <div className="loader ring-emerald-500" />
-                <p className="mt-4 text-emerald-600 font-medium">جاري تحميل الآيات...</p>
+                <p className="mt-4 text-emerald-600 font-medium">جاري التحميل...</p>
               </div>
             ) : (
               <div className="space-y-8 md:space-y-12">
-                {/* Bismillah */}
                 {selectedSurah !== 1 && selectedSurah !== 9 && (
-                  <div className="text-center animate-fade-in">
-                    <p className="text-2xl md:text-4xl text-emerald-800 drop-shadow-sm" style={{ fontFamily: "Amiri, serif" }}>
+                  <div className="text-center">
+                    <p className="text-2xl md:text-4xl text-emerald-800" style={{ fontFamily: "Amiri, serif" }}>
                       بِسۡمِ ٱللَّهِ ٱلرَّحۡمَٰنِ ٱلرَّحِيمِ
                     </p>
                   </div>
                 )}
 
-                {/* Quran Paper Container */}
-                <div className="relative group">
-                  <div className="absolute -inset-1 bg-gradient-to-r from-emerald-100 to-amber-100 rounded-[1.5rem] md:rounded-[2.5rem] blur opacity-25" />
-                  <div className="relative bg-white/90 backdrop-blur-sm rounded-[1.5rem] md:rounded-[2rem] border border-white shadow-2xl p-6 md:p-16">
-                    <div
-                      className="text-2xl md:text-4xl leading-[3.5rem] md:leading-[5.5rem] text-center"
-                      style={{ fontFamily: "Amiri, serif", textRendering: "optimizeLegibility" }}
-                    >
-                      {verses.map((verse, vIdx) => {
-                        const words = verse.text.split(/\s+/);
-                        return (
-                          <span key={verse.verse} className="inline">
-                            {words.map((word, wIdx) => {
-                              const revealed = revealedWords.find(rw =>
-                                rw.verseNumber === verse.verse && rw.wordIndex === wIdx
-                              );
-                              const isCurrent = vIdx === currentVerseIndex && wIdx === currentWordIndex && isListening;
+                <div className="relative bg-white/90 backdrop-blur-sm rounded-[1.5rem] md:rounded-[2rem] border border-white shadow-2xl p-6 md:p-16">
+                  <div
+                    className="text-2xl md:text-4xl leading-[3.5rem] md:leading-[5.5rem] text-center"
+                    style={{ fontFamily: "Amiri, serif" }}
+                  >
+                    {verses.map((verse, vIdx) => {
+                      const words = verse.text.split(/\s+/);
+                      return (
+                        <span key={verse.verse} className="inline">
+                          {words.map((word, wIdx) => {
+                            const revealed = revealedWords.find(rw =>
+                              rw.verseNumber === verse.verse && rw.wordIndex === wIdx
+                            );
+                            const isCurrent = vIdx === currentVerseIndex && wIdx === currentWordIndex && isListening;
 
-                              return (
-                                <span key={`${verse.verse}-${wIdx}`} className="inline-block mx-0.5 md:mx-1">
-                                  {!revealed ? (
-                                    <span className={`inline-block h-3 md:h-4 rounded-full transition-all duration-500 ${isCurrent ? "bg-amber-200 ring-4 ring-amber-100" : "bg-emerald-50"}`}
-                                      style={{ width: `${Math.max(1.5, word.length * 0.5)}rem` }}
-                                    />
-                                  ) : (
-                                    <span className={`inline animate-reveal ${revealed.isCorrect ? "text-emerald-950" : "text-rose-600 font-bold underline decoration-rose-200 underline-offset-4"}`}>
-                                      {word}
-                                    </span>
-                                  )}
-                                </span>
-                              );
-                            })}
-                            <span className="inline-flex items-center text-lg md:text-2xl text-amber-600/50 font-serif mx-1 md:mx-3 select-none">
-                              ﴿{verse.verse}﴾
-                            </span>
+                            return (
+                              <span key={`${verse.verse}-${wIdx}`} className="inline-block mx-0.5 md:mx-1">
+                                {!revealed ? (
+                                  <span className={`inline-block h-3 md:h-4 rounded-full transition-all duration-500 ${isCurrent ? "bg-amber-200 ring-4 ring-amber-100 animate-pulse" : "bg-emerald-50"}`}
+                                    style={{ width: `${Math.max(1.5, word.length * 0.55)}rem` }}
+                                  />
+                                ) : (
+                                  <span className={`inline animate-reveal ${revealed.isCorrect ? "text-emerald-950" : "text-rose-600 font-bold underline decoration-rose-200 underline-offset-4"}`}>
+                                    {word}
+                                  </span>
+                                )}
+                              </span>
+                            );
+                          })}
+                          <span className="inline-flex items-center text-lg md:text-2xl text-amber-600/50 font-serif mx-1 md:mx-3 select-none">
+                            ﴿{verse.verse}﴾
                           </span>
-                        );
-                      })}
-                    </div>
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -456,201 +505,76 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Dynamic Controls Bar */}
         {selectedSurah && !loadingVerses && (
-          <div className="fixed bottom-0 left-0 right-0 md:mr-0 z-30 px-4 md:px-8 pb-4 md:pb-8 pt-4 pointer-events-none">
+          <div className="fixed bottom-0 left-0 right-0 z-30 px-4 md:px-8 pb-4 md:pb-8 pt-4 pointer-events-none">
             <div className="max-w-4xl mx-auto pointer-events-auto">
-
-              {/* Spoken Text Debug */}
               {debugSpokenText && (
                 <div className="mb-2 space-y-1 animate-slide-up">
-                  <div className="bg-emerald-900/90 backdrop-blur-md text-emerald-50 px-4 md:px-6 py-2 rounded-xl md:rounded-2xl shadow-2xl border border-emerald-700/50">
-                    <div className="text-[9px] md:text-[10px] text-emerald-300 mb-1">النص المسموع (Original):</div>
-                    <p className="text-[10px] md:text-sm font-medium truncate">
-                      {debugSpokenText}
-                    </p>
+                  <div className="bg-emerald-900/90 backdrop-blur-md text-emerald-50 px-4 py-2 rounded-xl text-[10px] md:text-xs">
+                    <span className="opacity-50">مسموع: </span>{debugSpokenText}
                   </div>
-
                   {debugNormalizedSpoken && (
-                    <div className="bg-blue-900/90 backdrop-blur-md text-blue-50 px-4 md:px-6 py-2 rounded-xl md:rounded-2xl shadow-2xl border border-blue-700/50">
-                      <div className="text-[9px] md:text-[10px] text-blue-300 mb-1">بعد التطبيع (Normalized):</div>
-                      <p className="text-[10px] md:text-sm font-medium truncate font-mono">
-                        {debugNormalizedSpoken}
-                      </p>
+                    <div className="bg-blue-900/90 backdrop-blur-md text-blue-50 px-4 py-2 rounded-xl text-[10px] md:text-xs">
+                      <span className="opacity-50">تطبيع: </span>{debugNormalizedSpoken}
                     </div>
                   )}
-
                   {debugExpectedWord && (
-                    <div className="bg-amber-900/90 backdrop-blur-md text-amber-50 px-4 md:px-6 py-2 rounded-xl md:rounded-2xl shadow-2xl border border-amber-700/50">
-                      <div className="text-[9px] md:text-[10px] text-amber-300 mb-1">المقارنة:</div>
-                      <p className="text-[10px] md:text-sm font-medium truncate font-mono">
-                        {debugExpectedWord}
-                      </p>
+                    <div className="bg-amber-900/90 backdrop-blur-md text-amber-50 px-4 py-2 rounded-xl text-[10px] md:text-xs">
+                      {debugExpectedWord}
                     </div>
                   )}
                 </div>
               )}
 
-              <div className="bg-white/80 backdrop-blur-2xl border border-white rounded-[1.5rem] md:rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.1)] p-3 md:p-5 flex items-center justify-between">
-                <button
-                  onClick={handleReset}
-                  className="w-10 h-10 md:w-14 md:h-14 rounded-xl md:rounded-2xl bg-emerald-50 text-emerald-600 hover:bg-emerald-100 flex items-center justify-center transition-all active:scale-90"
-                >
+              <div className="bg-white/80 backdrop-blur-2xl border border-white rounded-[1.5rem] md:rounded-[2.5rem] shadow-2xl p-3 md:p-5 flex items-center justify-between">
+                <button onClick={handleReset} className="w-10 h-10 md:w-14 md:h-14 rounded-xl bg-emerald-50 text-emerald-600">
                   <RefreshIcon className="w-5 h-5 md:w-6 md:h-6" />
                 </button>
 
-                <div className="flex items-center gap-3 md:gap-6">
-                  <div className={`text-[8px] md:text-xs font-bold uppercase tracking-[0.1em] md:tracking-[0.2em] transition-colors ${isListening ? "text-rose-500 animate-pulse" : "text-emerald-300"}`}>
-                    {isListening ? "جاري التعرف" : "جاهز للبدء"}
+                <div className="flex items-center gap-4">
+                  <div className={`text-[8px] md:text-xs font-bold uppercase tracking-widest ${isListening ? "text-rose-500 animate-pulse" : "text-emerald-300"}`}>
+                    {isListening ? "جاري التعرف" : "جاهز"}
                   </div>
-
-                  <button
-                    onClick={toggleListening}
-                    className={`
-                      relative w-14 h-14 md:w-20 md:h-20 rounded-full flex items-center justify-center transition-all duration-500 transform
-                      ${isListening
-                        ? "bg-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.3)] scale-110"
-                        : "bg-emerald-600 shadow-[0_10px_20px_rgba(5,150,105,0.2)] hover:scale-110"
-                      }
-                    `}
-                  >
-                    {isListening ? (
-                      <StopIcon className="w-6 h-6 md:w-8 md:h-8 text-white" />
-                    ) : (
-                      <MicIcon className="w-7 h-7 md:w-9 md:h-9 text-white" />
-                    )}
-
-                    {isListening && (
-                      <div className="absolute inset-0 rounded-full bg-rose-500 animate-ping opacity-25" />
-                    )}
+                  <button onClick={toggleListening} className={`relative w-14 h-14 md:w-20 md:h-20 rounded-full flex items-center justify-center transition-all ${isListening ? "bg-rose-500" : "bg-emerald-600"}`}>
+                    {isListening ? <StopIcon className="w-6 h-6 md:w-8 md:h-8 text-white" /> : <MicIcon className="w-7 h-7 md:w-9 md:h-9 text-white" />}
                   </button>
-
                   <div className="w-8 md:w-[100px]" />
                 </div>
-
                 <div className="w-10 md:w-14" />
               </div>
             </div>
           </div>
         )}
-      </main>
+      </aside>
 
-      {/* Responsive Overlay for Sidebar */}
-      {isSidebarOpen && (
-        <div
-          className="fixed inset-0 bg-emerald-950/20 backdrop-blur-sm z-40 md:hidden transition-opacity duration-300"
-          onClick={() => setIsSidebarOpen(false)}
-        />
-      )}
+      {isSidebarOpen && <div className="fixed inset-0 bg-emerald-950/20 backdrop-blur-sm z-40 md:hidden" onClick={() => setIsSidebarOpen(false)} />}
 
       <style jsx global>{`
-        @keyframes reveal {
-          from { opacity: 0; transform: translateY(5px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-reveal {
-          animation: reveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-        .animate-slide-up {
-          animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        @keyframes slideUp {
-          from { transform: translateY(15px); opacity: 0; }
-          to { transform: translateY(0); opacity: 1; }
-        }
-        .scrollbar-hide::-webkit-scrollbar {
-          display: none;
-        }
-        .loader {
-          width: 40px;
-          height: 40px;
-          border-radius: 50%;
-          position: relative;
-          animation: rotate 1s linear infinite;
-        }
-        .loader::before {
-          content: "";
-          box-sizing: border-box;
-          position: absolute;
-          inset: 0px;
-          border-radius: 50%;
-          border: 3px solid #059669;
-          animation: prixClipFix 2s linear infinite ;
-        }
-        @keyframes rotate {
-          100%   {transform: rotate(360deg)}
-        }
-        @keyframes prixClipFix {
-          0%   {clip-path:polygon(50% 50%,0 0,0 0,0 0,0 0,0 0)}
-          25%  {clip-path:polygon(50% 50%,0 0,100% 0,100% 0,100% 0,100% 0)}
-          50%  {clip-path:polygon(50% 50%,0 0,100% 0,100% 100%,100% 100%,100% 100%)}
-          75%  {clip-path:polygon(50% 50%,0 0,100% 0,100% 100%,0 100%,0 100%)}
-          100% {clip-path:polygon(50% 50%,0 0,100% 0,100% 100%,0 100%,0 0)}
-        }
+        @keyframes reveal { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-reveal { animation: reveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        .animate-slide-up { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes slideUp { from { transform: translateY(15px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .loader { width: 32px; height: 32px; border-radius: 50%; border: 3px solid #059669; border-top-color: transparent; animation: rotate 1s linear infinite; }
+        @keyframes rotate { 100% { transform: rotate(360deg); } }
       `}</style>
     </div>
   );
 }
 
 function StatusCard({ label, value, color }: { label: string; value: string | number; color: 'emerald' | 'rose' }) {
-  const styles = {
-    emerald: "bg-emerald-50 text-emerald-600 border-emerald-100",
-    rose: "bg-rose-50 text-rose-600 border-rose-100",
-  }[color];
-
+  const styles = color === 'emerald' ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600";
   return (
-    <div className={`px-3 md:px-5 py-2 md:py-2.5 rounded-xl md:rounded-2xl border flex items-center gap-2 md:gap-4 shadow-sm ${styles}`}>
-      <span className="text-[8px] md:text-[0.6rem] font-black uppercase tracking-widest opacity-50">{label}</span>
+    <div className={`px-3 md:px-5 py-2 rounded-xl border flex items-center gap-2 md:gap-4 shadow-sm ${styles}`}>
+      <span className="text-[8px] md:text-[0.6rem] font-bold uppercase opacity-50">{label}</span>
       <span className="text-sm md:text-xl font-black">{value}</span>
     </div>
   );
 }
 
-function MenuIcon({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className={className}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-    </svg>
-  );
-}
-
-function CloseIcon({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className={className}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-    </svg>
-  );
-}
-
-function MicIcon({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={className}>
-      <path d="M8.25 4.5a3.75 3.75 0 1 1 7.5 0v8.25a3.75 3.75 0 1 1-7.5 0V4.5Z" />
-      <path d="M6 10.5a.75.75 0 0 1 .75.75 5.25 5.25 0 1 0 10.5 0 .75.75 0 0 1 1.5 0 6.75 6.75 0 0 1-6 6.709V21a.75.75 0 0 1-1.5 0v-3.041a6.75 6.75 0 0 1-6-6.709A.75.75 0 0 1 6 10.5Z" />
-    </svg>
-  );
-}
-
-function StopIcon({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={className}>
-      <path fillRule="evenodd" d="M4.5 7.5a3 3 0 0 1 3-3h9a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3h-9a3 3 0 0 1-3-3v-9Z" clipRule="evenodd" />
-    </svg>
-  );
-}
-
-function RefreshIcon({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className={className}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
-    </svg>
-  );
-}
-
-function SearchIcon({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className={className}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-    </svg>
-  );
-}
+function MenuIcon({ className }: { className?: string }) { return <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>; }
+function CloseIcon({ className }: { className?: string }) { return <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>; }
+function MicIcon({ className }: { className?: string }) { return <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={className}><path d="M8.25 4.5a3.75 3.75 0 1 1 7.5 0v8.25a3.75 3.75 0 1 1-7.5 0V4.5Z" /><path d="M6 10.5a.75.75 0 0 1 .75.75 5.25 5.25 0 1 0 10.5 0 .75.75 0 0 1 1.5 0 6.75 6.75 0 0 1-6 6.709V21a.75.75 0 0 1-1.5 0v-3.041a6.75 6.75 0 0 1-6-6.709A.75.75 0 0 1 6 10.5Z" /></svg>; }
+function StopIcon({ className }: { className?: string }) { return <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={className}><path fillRule="evenodd" d="M4.5 7.5a3 3 0 0 1 3-3h9a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3h-9a3 3 0 0 1-3-3v-9Z" clipRule="evenodd" /></svg>; }
+function RefreshIcon({ className }: { className?: string }) { return <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>; }
+function SearchIcon({ className }: { className?: string }) { return <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className={className}><path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" /></svg>; }
