@@ -162,68 +162,196 @@ export default function Home() {
 
     setDebugNormalizedSpoken(spokenWords.join(" "));
 
-    // NEW LOGIC: Match spoken words sequentially from current position
+    // HYBRID LOGIC: Try sequential match first, fall back to sliding window
     let vIdx = vIdxRef.current;
     let wIdx = wIdxRef.current;
-    let spokenIdx = 0;
-    const newReveals: WordStatus[] = [];
-    let newErrors = 0;
+    const firstSpokenWord = spokenWords[0];
 
-    // Match as many words as possible from the spoken text
-    while (vIdx < localNormalizedVerses.length && spokenIdx < spokenWords.length) {
-      const normalizedVerse = localNormalizedVerses[vIdx];
-
-      // Move to next verse if we finished current one
-      if (wIdx >= normalizedVerse.normalizedWords.length) {
-        vIdx++;
-        wIdx = 0;
-        continue;
-      }
-
-      const spokenWord = spokenWords[spokenIdx];
-      const expectedWord = normalizedVerse.normalizedWords[wIdx];
-
-      // Debug: show comparison for first word
-      if (spokenIdx === 0) {
-        setDebugExpectedWord(`"${expectedWord}" ← "${spokenWord}"`);
-      }
-
-      // Check if already revealed
-      const alreadyRevealed = revealedWordsRef.current.some(rw =>
-        rw.verseNumber === normalizedVerse.verse && rw.wordIndex === wIdx
-      );
-
-      if (alreadyRevealed) {
-        // Skip this expected word, don't consume spoken word
-        wIdx++;
-        continue;
-      }
-
-      const isCorrect = spokenWord === expectedWord;
-
-      newReveals.push({
-        verseNumber: normalizedVerse.verse,
-        wordIndex: wIdx,
-        word: normalizedVerse.originalWords[wIdx],
-        isCorrect
-      });
-
-      if (!isCorrect) {
-        newErrors++;
-        playErrorSound();
-      }
-
-      // Move both pointers forward
-      wIdx++;
-      spokenIdx++;
+    // Get current expected word
+    if (vIdx >= localNormalizedVerses.length) return;
+    let currentVerse = localNormalizedVerses[vIdx];
+    if (wIdx >= currentVerse.normalizedWords.length) {
+      vIdx++;
+      wIdx = 0;
+      if (vIdx >= localNormalizedVerses.length) return;
+      currentVerse = localNormalizedVerses[vIdx];
     }
 
-    // Only update if we matched something
-    if (newReveals.length > 0) {
-      setRevealedWords(prev => [...prev, ...newReveals]);
-      setErrorCount(prev => prev + newErrors);
-      setCurrentVerseIndex(vIdx);
-      setCurrentWordIndex(wIdx);
+    const currentExpectedWord = currentVerse.normalizedWords[wIdx];
+
+    // Check if first spoken word matches current position
+    const isSequential = firstSpokenWord === currentExpectedWord;
+
+    if (isSequential) {
+      // SEQUENTIAL MATCH: User is reciting in order
+      let spokenIdx = 0;
+      const newReveals: WordStatus[] = [];
+      let newErrors = 0;
+
+      while (vIdx < localNormalizedVerses.length && spokenIdx < spokenWords.length) {
+        const normalizedVerse = localNormalizedVerses[vIdx];
+
+        if (wIdx >= normalizedVerse.normalizedWords.length) {
+          vIdx++;
+          wIdx = 0;
+          continue;
+        }
+
+        const alreadyRevealed = revealedWordsRef.current.some(rw =>
+          rw.verseNumber === normalizedVerse.verse && rw.wordIndex === wIdx
+        );
+
+        if (alreadyRevealed) {
+          wIdx++;
+          continue;
+        }
+
+        const spokenWord = spokenWords[spokenIdx];
+        const expectedWord = normalizedVerse.normalizedWords[wIdx];
+        const isCorrect = spokenWord === expectedWord;
+
+        if (spokenIdx === 0) {
+          setDebugExpectedWord(`"${expectedWord}" ← "${spokenWord}"`);
+        }
+
+        newReveals.push({
+          verseNumber: normalizedVerse.verse,
+          wordIndex: wIdx,
+          word: normalizedVerse.originalWords[wIdx],
+          isCorrect
+        });
+
+        if (!isCorrect) {
+          newErrors++;
+          playErrorSound();
+        }
+
+        wIdx++;
+        spokenIdx++;
+      }
+
+      if (newReveals.length > 0) {
+        setRevealedWords(prev => [...prev, ...newReveals]);
+        setErrorCount(prev => prev + newErrors);
+        setCurrentVerseIndex(vIdx);
+        setCurrentWordIndex(wIdx);
+      }
+    } else {
+      // SLIDING WINDOW: User might have skipped words - find first match
+      const windowSize = 10;
+      let searchV = vIdx;
+      let searchW = wIdx;
+      let foundPosition = -1;
+      let foundV = -1;
+      let foundW = -1;
+
+      for (let i = 0; i < windowSize && searchV < localNormalizedVerses.length; i++) {
+        const verse = localNormalizedVerses[searchV];
+
+        if (searchW >= verse.normalizedWords.length) {
+          searchV++;
+          searchW = 0;
+          continue;
+        }
+
+        if (firstSpokenWord === verse.normalizedWords[searchW]) {
+          foundPosition = i;
+          foundV = searchV;
+          foundW = searchW;
+          break;
+        }
+
+        searchW++;
+      }
+
+      if (foundPosition >= 0) {
+        // Found the word! Mark skipped words as errors and continue from there
+        const skippedReveals: WordStatus[] = [];
+        let skipV = vIdx;
+        let skipW = wIdx;
+
+        // Mark all skipped words
+        for (let i = 0; i < foundPosition; i++) {
+          const verse = localNormalizedVerses[skipV];
+          if (skipW >= verse.normalizedWords.length) {
+            skipV++;
+            skipW = 0;
+            continue;
+          }
+
+          const alreadyRevealed = revealedWordsRef.current.some(rw =>
+            rw.verseNumber === verse.verse && rw.wordIndex === skipW
+          );
+
+          if (!alreadyRevealed) {
+            skippedReveals.push({
+              verseNumber: verse.verse,
+              wordIndex: skipW,
+              word: verse.originalWords[skipW],
+              isCorrect: false
+            });
+          }
+
+          skipW++;
+        }
+
+        if (skippedReveals.length > 0) {
+          playErrorSound();
+        }
+
+        // Now match from found position
+        let spokenIdx = 0;
+        let matchV = foundV;
+        let matchW = foundW;
+        const matchReveals: WordStatus[] = [];
+
+        while (matchV < localNormalizedVerses.length && spokenIdx < spokenWords.length) {
+          const verse = localNormalizedVerses[matchV];
+
+          if (matchW >= verse.normalizedWords.length) {
+            matchV++;
+            matchW = 0;
+            continue;
+          }
+
+          const alreadyRevealed = revealedWordsRef.current.some(rw =>
+            rw.verseNumber === verse.verse && rw.wordIndex === matchW
+          );
+
+          if (alreadyRevealed) {
+            matchW++;
+            continue;
+          }
+
+          const spokenWord = spokenWords[spokenIdx];
+          const expectedWord = verse.normalizedWords[matchW];
+          const isCorrect = spokenWord === expectedWord;
+
+          if (spokenIdx === 0) {
+            setDebugExpectedWord(`✓ قفز ${foundPosition} ← "${spokenWord}"`);
+          }
+
+          matchReveals.push({
+            verseNumber: verse.verse,
+            wordIndex: matchW,
+            word: verse.originalWords[matchW],
+            isCorrect
+          });
+
+          if (!isCorrect) {
+            playErrorSound();
+          }
+
+          matchW++;
+          spokenIdx++;
+        }
+
+        const allReveals = [...skippedReveals, ...matchReveals];
+        setRevealedWords(prev => [...prev, ...allReveals]);
+        setErrorCount(prev => prev + skippedReveals.length + matchReveals.filter(r => !r.isCorrect).length);
+        setCurrentVerseIndex(matchV);
+        setCurrentWordIndex(matchW);
+      }
     }
   }, []);
 
@@ -515,16 +643,16 @@ export default function Home() {
               )}
 
               <div className="bg-white/80 backdrop-blur-2xl border border-white rounded-[1.5rem] md:rounded-[2.5rem] shadow-2xl p-3 md:p-5 flex items-center justify-between">
-                <button onClick={handleReset} className="w-10 h-10 md:w-14 md:h-14 rounded-xl bg-emerald-50 text-emerald-600">
+                <button onClick={handleReset} className="w-10 h-10 md:w-14 md:h-14 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
                   <RefreshIcon className="w-5 h-5 md:w-6 md:h-6" />
                 </button>
 
-                <div className="flex items-center gap-4">
+                <div className="flex items-center justify-center gap-4">
                   <div className={`text-[8px] md:text-xs font-bold uppercase tracking-widest ${isListening ? "text-rose-500 animate-pulse" : "text-emerald-300"}`}>
                     {isListening ? "جاري التعرف" : "جاهز"}
                   </div>
                   <button onClick={toggleListening} className={`relative w-14 h-14 md:w-20 md:h-20 rounded-full flex items-center justify-center transition-all ${isListening ? "bg-rose-500" : "bg-emerald-600"}`}>
-                    {isListening ? <StopIcon className="w-6 h-6 md:w-8 md:h-8 text-white" /> : <MicIcon className="w-7 h-7 md:w-9 md:h-9 text-white" />}
+                    {isListening ? <StopIcon className="w-4 h-4 md:w-6 md:h-6 text-white" /> : <MicIcon className="w-7 h-7 md:w-9 md:h-9 text-white" />}
                   </button>
                   <div className="w-8 md:w-[100px]" />
                 </div>
