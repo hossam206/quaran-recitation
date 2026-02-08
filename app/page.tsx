@@ -160,93 +160,70 @@ export default function Home() {
     const spokenWords = normalizedSpoken.split(/\s+/).filter(Boolean);
     if (!spokenWords.length) return;
 
-    const latestSpokenWord = spokenWords[spokenWords.length - 1];
-
-    // Batch state updates to minimize re-renders
     setDebugNormalizedSpoken(spokenWords.join(" "));
 
-    let foundMatch = false;
-    let matchVIdx = vIdxRef.current;
-    let matchWIdx = wIdxRef.current;
+    // NEW LOGIC: Match spoken words sequentially from current position
+    let vIdx = vIdxRef.current;
+    let wIdx = wIdxRef.current;
+    let spokenIdx = 0;
+    const newReveals: WordStatus[] = [];
+    let newErrors = 0;
 
-    const windowSize = 8;
-    let checkedCount = 0;
+    // Match as many words as possible from the spoken text
+    while (vIdx < localNormalizedVerses.length && spokenIdx < spokenWords.length) {
+      const normalizedVerse = localNormalizedVerses[vIdx];
 
-    let tempV = vIdxRef.current;
-    let tempW = wIdxRef.current;
-
-    const skippedReveals: WordStatus[] = [];
-
-    // Use cached normalized verses (no repeated normalization!)
-    while (tempV < localNormalizedVerses.length && checkedCount < windowSize) {
-      const normalizedVerse = localNormalizedVerses[tempV];
-
-      if (tempW >= normalizedVerse.normalizedWords.length) {
-        tempV++;
-        tempW = 0;
+      // Move to next verse if we finished current one
+      if (wIdx >= normalizedVerse.normalizedWords.length) {
+        vIdx++;
+        wIdx = 0;
         continue;
       }
 
-      const expectedWord = normalizedVerse.normalizedWords[tempW];
+      const spokenWord = spokenWords[spokenIdx];
+      const expectedWord = normalizedVerse.normalizedWords[wIdx];
 
-      // Only update debug on first check to reduce re-renders
-      if (checkedCount === 0) {
-        setDebugExpectedWord(`البحث: "${expectedWord}" | المسموع: "${latestSpokenWord}"`);
+      // Debug: show comparison for first word
+      if (spokenIdx === 0) {
+        setDebugExpectedWord(`"${expectedWord}" ← "${spokenWord}"`);
       }
 
-      if (latestSpokenWord === expectedWord) {
-        foundMatch = true;
-        matchVIdx = tempV;
-        matchWIdx = tempW;
-        break;
-      }
-
+      // Check if already revealed
       const alreadyRevealed = revealedWordsRef.current.some(rw =>
-        rw.verseNumber === normalizedVerse.verse && rw.wordIndex === tempW
+        rw.verseNumber === normalizedVerse.verse && rw.wordIndex === wIdx
       );
 
-      if (!alreadyRevealed) {
-        skippedReveals.push({
-          verseNumber: normalizedVerse.verse,
-          wordIndex: tempW,
-          word: normalizedVerse.originalWords[tempW],
-          isCorrect: false
-        });
+      if (alreadyRevealed) {
+        // Skip this expected word, don't consume spoken word
+        wIdx++;
+        continue;
       }
 
-      tempW++;
-      checkedCount++;
-    }
+      const isCorrect = spokenWord === expectedWord;
 
-    if (foundMatch) {
-      const matchedVerse = localNormalizedVerses[matchVIdx];
-      const matchReveal: WordStatus = {
-        verseNumber: matchedVerse.verse,
-        wordIndex: matchWIdx,
-        word: matchedVerse.originalWords[matchWIdx],
-        isCorrect: true
-      };
+      newReveals.push({
+        verseNumber: normalizedVerse.verse,
+        wordIndex: wIdx,
+        word: normalizedVerse.originalWords[wIdx],
+        isCorrect
+      });
 
-      const allNewReveals = [...skippedReveals, matchReveal];
-
-      // Batch state updates
-      setRevealedWords(prev => [...prev, ...allNewReveals]);
-      setErrorCount(prev => prev + skippedReveals.length);
-
-      if (skippedReveals.length > 0) {
+      if (!isCorrect) {
+        newErrors++;
         playErrorSound();
       }
 
-      let nextW = matchWIdx + 1;
-      let nextV = matchVIdx;
+      // Move both pointers forward
+      wIdx++;
+      spokenIdx++;
+    }
 
-      if (nextW >= matchedVerse.normalizedWords.length) {
-        nextV++;
-        nextW = 0;
-      }
-
-      setCurrentVerseIndex(nextV);
-      setCurrentWordIndex(nextW);
+    // Only update if we matched something
+    if (newReveals.length > 0) {
+      setRevealedWords(prev => [...prev, ...newReveals]);
+      setErrorCount(prev => prev + newErrors);
+      setCurrentVerseIndex(vIdx);
+      setCurrentWordIndex(wIdx);
     }
   }, []);
 
