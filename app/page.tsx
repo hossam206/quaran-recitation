@@ -26,6 +26,7 @@ export default function Home() {
   const [verseColors, setVerseColors] = useState<Map<number, string>>(new Map());
   const [errorCount, setErrorCount] = useState(0);
   const [interimText, setInterimText] = useState("");
+  const [debugSpokenText, setDebugSpokenText] = useState("");
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
@@ -63,6 +64,7 @@ export default function Home() {
       setVerseColors(new Map());
       setErrorCount(0);
       setInterimText("");
+      setDebugSpokenText("");
 
       fetch(`/api/verses?surah=${selectedSurah}`)
         .then((res) => res.json())
@@ -89,22 +91,23 @@ export default function Home() {
     const spokenWords = normalizedSpoken.split(/\s+/).filter(Boolean);
     const expectedWords = normalizedExpected.split(/\s+/).filter(Boolean);
 
-    let matches = 0;
-    for (let i = 0; i < Math.min(spokenWords.length, expectedWords.length); i++) {
-      if (spokenWords[i] === expectedWords[i]) {
-        matches++;
+    // سرعة أعلى: فقط نتحقق من أول 3-5 كلمات
+    const wordsToCheck = Math.min(5, expectedWords.length);
+
+    if (spokenWords.length >= wordsToCheck) {
+      let matches = 0;
+      for (let i = 0; i < wordsToCheck; i++) {
+        if (spokenWords[i] === expectedWords[i]) {
+          matches++;
+        }
       }
-    }
 
-    // Check if we have enough words (at least 60% of the verse)
-    if (spokenWords.length >= Math.ceil(expectedWords.length * 0.6)) {
-      const accuracy = matches / expectedWords.length;
-      const isCorrect = accuracy >= 0.75;
+      // لو 60% من أول الكلمات صح = ننتقل (أقل صرامة)
+      const accuracy = matches / wordsToCheck;
+      const isCorrect = accuracy >= 0.6;
 
-      // Reveal verse
+      // اظهر الآية
       setRevealedVerses(prev => new Set(prev).add(currentVerse.verse));
-
-      // Set color
       setVerseColors(prev => {
         const newMap = new Map(prev);
         newMap.set(currentVerse.verse, isCorrect ? "correct" : "wrong");
@@ -116,7 +119,7 @@ export default function Home() {
         playErrorSound();
       }
 
-      // Move to next verse
+      // انتقل فوراً!
       setCurrentVerseIndex(prev => prev + 1);
       setInterimText("");
     }
@@ -156,6 +159,7 @@ export default function Home() {
 
         const fullText = (finalTranscript + " " + interimTranscript).trim();
         setInterimText(finalTranscript);
+        setDebugSpokenText(fullText); // عرض النص المسموع
 
         // Check in real-time
         if (fullText) {
@@ -182,6 +186,7 @@ export default function Home() {
     setCurrentVerseIndex(0);
     setRevealedVerses(new Set());
     setVerseColors(new Map());
+    setDebugSpokenText("");
     setErrorCount(0);
     setInterimText("");
   };
@@ -338,7 +343,17 @@ export default function Home() {
 
         {/* Bottom Controls */}
         {selectedSurah && !loadingVerses && (
-          <div className="bg-white border-t border-gray-200 shadow-lg">
+          <div className="bg-white/95 backdrop-blur border-t border-gray-200 shadow-lg">
+            {/* Debug Text */}
+            {debugSpokenText && (
+              <div className="max-w-5xl mx-auto px-6 py-2 border-b border-gray-200">
+                <div className="text-xs text-gray-500 mb-1">النص المسموع:</div>
+                <div className="text-sm bg-gray-50 rounded px-3 py-2 font-mono text-gray-800">
+                  {debugSpokenText}
+                </div>
+              </div>
+            )}
+
             <div className="max-w-5xl mx-auto px-6 py-5 flex items-center justify-center gap-6">
               <button
                 onClick={handleReset}
