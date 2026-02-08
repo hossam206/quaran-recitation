@@ -356,7 +356,7 @@ export default function Home() {
           <div className="max-w-4xl mx-auto py-6 md:py-8">
             {!selectedSurah ? (
               <div className="h-full flex flex-col items-center justify-center text-center mt-10 md:mt-20 px-6">
-                <div className="w-24 md:w-32 h-24 md:h-32 bg-emerald-50 rounded-full flex items-center justify-center mb-6 md:mb-8 animate-bounce">
+                <div className="w-24 md:w-32 h-24 md:h-32 bg-emerald-50 rounded-full flex items-center justify-center mb-6 md:mb-8">
                   <span className="text-4xl md:text-6xl text-emerald-600">🕌</span>
                 </div>
                 <h3 className="text-xl md:text-2xl font-bold text-emerald-900 mb-2">مرحباً بك في مُرَتِّل</h3>
