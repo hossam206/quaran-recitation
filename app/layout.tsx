@@ -1,19 +1,15 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Amiri } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+const amiri = Amiri({
+  weight: ["400", "700"],
+  subsets: ["arabic"],
+  variable: "--font-amiri",
 });
 
 export const metadata: Metadata = {
-  title: "تصحيح التلاوة - Quran Recitation Checker",
+  title: "تصحيح التلاوة - Quran Recitation",
   description: "Record your Quran recitation and get instant feedback on mistakes",
 };
 
@@ -24,9 +20,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ar" dir="rtl">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+      <body className={`${amiri.variable} antialiased`}>
         {children}
       </body>
     </html>

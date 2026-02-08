@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useAudioRecorder } from "@/hooks/use-audio-recorder";
-import { Mistake } from "@/lib/types";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { normalizeArabic } from "@/lib/quran-data";
 
 interface Surah {
   number: number;
@@ -16,24 +15,54 @@ interface VerseData {
   text: string;
 }
 
-interface RecitationResult {
-  success: boolean;
-  recognized: string;
-  mistakes: Mistake[];
-  score: number;
+interface RevealedVerse {
+  verseNumber: number;
+  isCorrect: boolean;
 }
 
 export default function Home() {
   const [surahs, setSurahs] = useState<Surah[]>([]);
   const [selectedSurah, setSelectedSurah] = useState<number | null>(null);
   const [verses, setVerses] = useState<VerseData[]>([]);
-  const [result, setResult] = useState<RecitationResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [apiError, setApiError] = useState<string | null>(null);
   const [loadingVerses, setLoadingVerses] = useState(false);
 
-  const { status, audioBlob, startRecording, stopRecording, resetRecording, error: recorderError } =
-    useAudioRecorder();
+  // Real-time recognition state
+  const [isListening, setIsListening] = useState(false);
+  const [spokenText, setSpokenText] = useState("");
+  const [revealedVerses, setRevealedVerses] = useState<RevealedVerse[]>([]);
+  const [currentVerseIndex, setCurrentVerseIndex] = useState(0);
+  const [errorCount, setErrorCount] = useState(0);
+  const [recordingTime, setRecordingTime] = useState(0);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const errorSoundRef = useRef<HTMLAudioElement | null>(null);
+
+  // Load error sound
+  useEffect(() => {
+    // Create error sound (simple beep using Web Audio API)
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    errorSoundRef.current = null; // We'll use Web Audio API directly
+  }, []);
+
+  const playErrorSound = () => {
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    oscillator.frequency.value = 400; // Hz
+    oscillator.type = 'sine';
+
+    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + 0.3);
+  };
 
   // Load surahs on mount
   useEffect(() => {
@@ -47,7 +76,11 @@ export default function Home() {
   useEffect(() => {
     if (selectedSurah) {
       setLoadingVerses(true);
-      setResult(null);
+      setSpokenText("");
+      setRevealedVerses([]);
+      setCurrentVerseIndex(0);
+      setErrorCount(0);
+
       fetch(`/api/verses?surah=${selectedSurah}`)
         .then((res) => res.json())
         .then((data) => {
@@ -63,294 +96,361 @@ export default function Home() {
     }
   }, [selectedSurah]);
 
-  async function handleSubmit() {
-    if (!audioBlob || !selectedSurah) return;
+  // Check recitation against current verse
+  const checkCurrentVerse = useCallback((text: string) => {
+    if (!verses.length || currentVerseIndex >= verses.length) return;
 
-    setLoading(true);
-    setApiError(null);
-    setResult(null);
+    const currentVerse = verses[currentVerseIndex];
+    const normalizedSpoken = normalizeArabic(text);
+    const normalizedExpected = normalizeArabic(currentVerse.text);
 
-    try {
-      const formData = new FormData();
-      formData.append("surah", String(selectedSurah));
-      formData.append("audio", audioBlob, "recording.webm");
+    const spokenWords = normalizedSpoken.split(/\s+/).filter(Boolean);
+    const expectedWords = normalizedExpected.split(/\s+/).filter(Boolean);
 
-      const response = await fetch("/api/check-recitation", {
-        method: "POST",
-        body: formData,
-      });
+    // Check if user has spoken enough words to match this verse
+    const wordsToMatch = Math.min(expectedWords.length, spokenWords.length);
 
-      const data = await response.json();
+    if (wordsToMatch >= Math.ceil(expectedWords.length * 0.6)) {
+      // User has spoken at least 60% of the verse, check accuracy
+      let matchCount = 0;
 
-      if (!response.ok) {
-        setApiError(data.error || "Something went wrong");
-        return;
+      for (let i = 0; i < wordsToMatch; i++) {
+        if (spokenWords[i] === expectedWords[i]) {
+          matchCount++;
+        }
       }
 
-      setResult(data as RecitationResult);
-    } catch {
-      setApiError("Failed to connect to the server. Please try again.");
-    } finally {
-      setLoading(false);
+      const accuracy = matchCount / expectedWords.length;
+      const isCorrect = accuracy >= 0.7; // 70% threshold
+
+      // Reveal this verse
+      setRevealedVerses(prev => [
+        ...prev,
+        { verseNumber: currentVerse.verse, isCorrect }
+      ]);
+
+      if (!isCorrect) {
+        setErrorCount(prev => prev + 1);
+        playErrorSound();
+      }
+
+      // Move to next verse
+      setCurrentVerseIndex(prev => prev + 1);
+      setSpokenText(""); // Reset for next verse
     }
-  }
+  }, [verses, currentVerseIndex]);
 
-  function handleReset() {
-    resetRecording();
-    setResult(null);
-    setApiError(null);
-  }
+  // Start/stop recognition
+  const toggleListening = useCallback(() => {
+    if (isListening) {
+      // Stop
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+      setIsListening(false);
+    } else {
+      // Start
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        alert("المتصفح لا يدعم التعرف على الكلام. جرب Chrome.");
+        return;
+      }
+      const recognition = new SpeechRecognition();
 
-  // Check if a verse has mistakes
-  function getVerseMistakes(verseNumber: number): Mistake[] {
-    if (!result) return [];
-    return result.mistakes.filter((m) => m.position === verseNumber - 1);
-  }
+      recognition.lang = "ar";
+      recognition.continuous = true;
+      recognition.interimResults = true;
 
-  function hasVerseError(verseNumber: number): boolean {
-    return getVerseMistakes(verseNumber).length > 0;
-  }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      recognition.onresult = (event: any) => {
+        let transcript = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i].isFinal) {
+            transcript += event.results[i][0].transcript + " ";
+          }
+        }
+
+        if (transcript.trim()) {
+          const newText = (spokenText + " " + transcript).trim();
+          setSpokenText(newText);
+          checkCurrentVerse(newText);
+        }
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      recognition.onerror = (event: any) => {
+        console.error("Speech recognition error:", event.error);
+        if (event.error === "no-speech") {
+          recognition.stop();
+          setTimeout(() => recognition.start(), 100);
+        }
+      };
+
+      recognition.onend = () => {
+        if (isListening) {
+          recognition.start();
+        }
+      };
+
+      recognition.start();
+      recognitionRef.current = recognition;
+      setIsListening(true);
+      setRecordingTime(0);
+
+      timerRef.current = setInterval(() => {
+        setRecordingTime((prev) => prev + 1);
+      }, 1000);
+    }
+  }, [isListening, spokenText, checkCurrentVerse]);
+
+  // Reset
+  const handleReset = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+    }
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+    setIsListening(false);
+    setSpokenText("");
+    setRevealedVerses([]);
+    setErrorCount(0);
+    setRecordingTime(0);
+    setCurrentVerseIndex(0);
+  };
+
+  // Format time
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  // Check if verse is revealed
+  const getVerseStatus = (verseNumber: number) => {
+    return revealedVerses.find(v => v.verseNumber === verseNumber);
+  };
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950" dir="rtl">
-      <div className="mx-auto max-w-3xl px-4 py-12">
-        {/* Header */}
-        <header className="mb-10 text-center">
-          <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-50">
-            تصحيح التلاوة
-          </h1>
-          <p className="mt-2 text-zinc-500 dark:text-zinc-400">
-            اختر السورة وسجّل تلاوتك - سنعلم على الآيات الخاطئة بالأحمر
-          </p>
-        </header>
+    <div className="min-h-screen bg-gradient-to-br from-emerald-50 to-teal-50" dir="rtl">
+      {/* Header */}
+      <header className="sticky top-0 z-10 bg-white/95 backdrop-blur-lg border-b border-emerald-200 shadow-sm">
+        <div className="flex items-center justify-between px-6 py-4">
+          <div className="flex items-center gap-3">
+            <span className="text-3xl">📖</span>
+            <h1 className="text-xl font-bold text-emerald-800">تصحيح التلاوة</h1>
+          </div>
 
-        {/* Surah Dropdown */}
-        <div className="mb-6">
-          <label className="mb-2 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            اختر السورة
-          </label>
+          {/* Surah selector */}
           <select
             value={selectedSurah || ""}
             onChange={(e) => {
               setSelectedSurah(e.target.value ? Number(e.target.value) : null);
               handleReset();
             }}
-            className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-3 text-lg text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+            className="px-4 py-2 rounded-lg bg-emerald-50 border-2 border-emerald-300 text-emerald-900 font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
           >
-            <option value="">-- اختر سورة --</option>
+            <option value="">اختر السورة</option>
             {surahs.map((s) => (
               <option key={s.number} value={s.number}>
-                {s.number}. {s.name}
+                {s.name}
               </option>
             ))}
           </select>
+
+          <div className="w-12" />
         </div>
+      </header>
 
-        {/* Verses Display */}
-        {selectedSurah && (
-          <div className="mb-8">
-            {loadingVerses ? (
-              <div className="text-center py-8 text-zinc-500">جاري تحميل الآيات...</div>
-            ) : (
-              <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-                <h2 className="mb-4 text-lg font-semibold text-zinc-700 dark:text-zinc-300">
-                  آيات السورة
-                </h2>
-                <div className="space-y-3">
-                  {verses.map((verse) => {
-                    const hasError = hasVerseError(verse.verse);
-                    const mistakes = getVerseMistakes(verse.verse);
+      {/* Main content */}
+      <main className="pb-32 px-4 py-8">
+        {!selectedSurah ? (
+          <div className="flex flex-col items-center justify-center min-h-[60vh] text-gray-400">
+            <span className="text-7xl mb-6">🕌</span>
+            <p className="text-xl text-gray-500">اختر سورة للبدء</p>
+          </div>
+        ) : loadingVerses ? (
+          <div className="flex items-center justify-center min-h-[60vh]">
+            <div className="animate-spin rounded-full h-16 w-16 border-4 border-emerald-500 border-t-transparent" />
+          </div>
+        ) : (
+          <div className="max-w-4xl mx-auto">
+            {/* Bismillah */}
+            {selectedSurah !== 1 && selectedSurah !== 9 && (
+              <div className="text-center mb-12">
+                <p className="text-3xl text-emerald-700" style={{ fontFamily: "Amiri, serif" }}>
+                  بِسۡمِ ٱللَّهِ ٱلرَّحۡمَٰنِ ٱلرَّحِيمِ
+                </p>
+              </div>
+            )}
 
-                    return (
-                      <div
-                        key={verse.verse}
-                        className={`rounded-lg p-4 transition-all ${hasError
-                            ? "bg-red-50 border-2 border-red-400 dark:bg-red-950 dark:border-red-600"
-                            : result
-                              ? "bg-emerald-50 border border-emerald-200 dark:bg-emerald-950 dark:border-emerald-800"
-                              : "bg-zinc-50 border border-zinc-200 dark:bg-zinc-800 dark:border-zinc-700"
-                          }`}
+            {/* Progress indicator */}
+            <div className="mb-8 text-center">
+              <div className="inline-flex items-center gap-3 bg-white rounded-full px-6 py-3 shadow-lg">
+                <span className="text-2xl font-bold text-emerald-600">
+                  {revealedVerses.length}
+                </span>
+                <span className="text-gray-400">/</span>
+                <span className="text-lg text-gray-500">{verses.length}</span>
+                <span className="text-sm text-gray-400">آية</span>
+              </div>
+            </div>
+
+            {/* Verses */}
+            <div className="space-y-6">
+              {verses.map((verse) => {
+                const status = getVerseStatus(verse.verse);
+                const isRevealed = !!status;
+                const isCorrect = status?.isCorrect;
+                const isCurrent = verse.verse === verses[currentVerseIndex]?.verse && isListening;
+
+                return (
+                  <div
+                    key={verse.verse}
+                    className={`
+                      rounded-2xl p-6 transition-all duration-500 transform
+                      ${isCurrent ? "ring-4 ring-amber-400 scale-105 shadow-xl" : ""}
+                      ${isRevealed
+                        ? isCorrect
+                          ? "bg-white border-2 border-emerald-300 shadow-lg"
+                          : "bg-red-50 border-2 border-red-400 shadow-lg animate-pulse"
+                        : "bg-gray-100 border-2 border-gray-200"
+                      }
+                    `}
+                  >
+                    <div className="flex items-start gap-4">
+                      <span
+                        className={`
+                          flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold
+                          ${isRevealed
+                            ? isCorrect
+                              ? "bg-emerald-500 text-white"
+                              : "bg-red-500 text-white"
+                            : "bg-gray-300 text-gray-600"
+                          }
+                        `}
                       >
-                        <div className="flex items-start gap-3">
-                          <span
-                            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${hasError
-                                ? "bg-red-500 text-white"
-                                : result
-                                  ? "bg-emerald-500 text-white"
-                                  : "bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300"
-                              }`}
-                          >
-                            {verse.verse}
-                          </span>
-                          <p
-                            className={`text-xl leading-loose ${hasError
-                                ? "text-red-800 dark:text-red-200"
-                                : "text-zinc-900 dark:text-zinc-100"
-                              }`}
-                            style={{ fontFamily: "serif" }}
-                          >
-                            {verse.text}
-                          </p>
-                        </div>
+                        {verse.verse}
+                      </span>
 
-                        {/* Show mistake details */}
-                        {hasError && mistakes.length > 0 && (
-                          <div className="mt-3 mr-11 space-y-2">
-                            {mistakes.map((mistake, i) => (
-                              <div
-                                key={i}
-                                className="text-sm text-red-600 dark:text-red-400"
-                              >
-                                {mistake.type === "wrong" && (
-                                  <span>
-                                    ❌ قلت: <strong>{mistake.actual}</strong> بدلاً من:{" "}
-                                    <strong>{mistake.expected}</strong>
-                                  </span>
-                                )}
-                                {mistake.type === "missing" && (
-                                  <span>
-                                    ⚠️ نقصت كلمة: <strong>{mistake.expected}</strong>
-                                  </span>
-                                )}
-                                {mistake.type === "extra" && (
-                                  <span>
-                                    ➕ زدت كلمة: <strong>{mistake.actual}</strong>
-                                  </span>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                      {isRevealed ? (
+                        <p
+                          className={`
+                            text-2xl leading-loose flex-1
+                            ${isCorrect ? "text-gray-800" : "text-red-600"}
+                          `}
+                          style={{ fontFamily: "Amiri, serif" }}
+                        >
+                          {verse.text}
+                        </p>
+                      ) : (
+                        <div className="flex-1 space-y-2">
+                          <div className="h-8 bg-gray-200 rounded-lg w-full animate-pulse" />
+                          <div className="h-8 bg-gray-200 rounded-lg w-5/6 animate-pulse" />
+                          <div className="h-8 bg-gray-200 rounded-lg w-4/6 animate-pulse" />
+                        </div>
+                      )}
+                    </div>
+
+                    {isCurrent && (
+                      <div className="mt-4 text-center">
+                        <span className="inline-flex items-center gap-2 text-sm text-amber-600 font-medium">
+                          <span className="flex h-2 w-2">
+                            <span className="animate-ping absolute h-2 w-2 rounded-full bg-amber-400 opacity-75"></span>
+                            <span className="relative rounded-full h-2 w-2 bg-amber-500"></span>
+                          </span>
+                          استمع الآن...
+                        </span>
                       </div>
-                    );
-                  })}
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Completion message */}
+            {revealedVerses.length === verses.length && verses.length > 0 && (
+              <div className="mt-12 text-center">
+                <div className="inline-block bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-2xl px-8 py-6 shadow-2xl">
+                  <div className="text-5xl mb-3">✨</div>
+                  <h2 className="text-2xl font-bold mb-2">انتهيت من السورة!</h2>
+                  <p className="text-emerald-100">
+                    الدقة: {Math.round(((verses.length - errorCount) / verses.length) * 100)}%
+                  </p>
                 </div>
               </div>
             )}
           </div>
         )}
+      </main>
 
-        {/* Recording Controls */}
-        {selectedSurah && (
-          <div className="mb-8 flex flex-col items-center gap-4">
-            {status === "idle" && (
-              <>
-                <button
-                  onClick={startRecording}
-                  className="flex h-20 w-20 items-center justify-center rounded-full bg-red-500 text-white shadow-lg transition hover:bg-red-600 active:scale-95"
-                  aria-label="بدء التسجيل"
-                >
-                  <MicIcon />
-                </button>
-                <p className="text-sm text-zinc-500">اضغط للتسجيل</p>
-              </>
-            )}
-
-            {status === "recording" && (
-              <>
-                <button
-                  onClick={stopRecording}
-                  className="flex h-20 w-20 animate-pulse items-center justify-center rounded-full bg-red-600 text-white shadow-lg transition active:scale-95"
-                  aria-label="إيقاف التسجيل"
-                >
-                  <StopIcon />
-                </button>
-                <p className="text-sm text-red-500">جاري التسجيل... اقرأ السورة</p>
-              </>
-            )}
-
-            {status === "stopped" && !result && (
-              <div className="flex gap-3">
-                <button
-                  onClick={handleSubmit}
-                  disabled={loading}
-                  className="rounded-lg bg-emerald-600 px-6 py-3 font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
-                >
-                  {loading ? "جاري التحليل..." : "تحقق من التلاوة"}
-                </button>
-                <button
-                  onClick={handleReset}
-                  className="rounded-lg border border-zinc-300 px-6 py-3 font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                >
-                  إعادة التسجيل
-                </button>
+      {/* Bottom controls */}
+      {selectedSurah && !loadingVerses && (
+        <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-lg border-t border-emerald-200 shadow-2xl">
+          {/* Stats bar */}
+          {isListening && (
+            <div className="flex items-center justify-between px-6 py-3 bg-gradient-to-r from-rose-50 to-orange-50 border-b border-rose-200">
+              <div className="flex items-center gap-3">
+                <span className="flex h-3 w-3">
+                  <span className="animate-ping absolute h-3 w-3 rounded-full bg-red-400 opacity-75"></span>
+                  <span className="relative rounded-full h-3 w-3 bg-red-500"></span>
+                </span>
+                <span className="text-sm font-semibold text-red-600">{formatTime(recordingTime)}</span>
               </div>
-            )}
+              <span className="text-sm text-gray-600">
+                الآية {currentVerseIndex + 1} من {verses.length}
+              </span>
+            </div>
+          )}
 
-            {recorderError && (
-              <p className="text-sm text-red-500">{recorderError}</p>
-            )}
-            {apiError && (
-              <p className="text-sm text-red-500">{apiError}</p>
-            )}
-          </div>
-        )}
-
-        {/* Results Summary */}
-        {result && (
-          <div className="space-y-6">
-            {/* Score */}
-            <div className="rounded-xl border border-zinc-200 bg-white p-6 text-center dark:border-zinc-800 dark:bg-zinc-900">
-              <div
-                className={`text-5xl font-bold ${result.score >= 80
-                    ? "text-emerald-500"
-                    : result.score >= 50
-                      ? "text-amber-500"
-                      : "text-red-500"
-                  }`}
-              >
-                {result.score}%
-              </div>
-              <p className="mt-1 text-sm text-zinc-500">نسبة الدقة</p>
-
-              {result.mistakes.length === 0 ? (
-                <p className="mt-4 text-lg font-medium text-emerald-600">
-                  ما شاء الله! تلاوة صحيحة ✓
-                </p>
-              ) : (
-                <p className="mt-4 text-sm text-zinc-500">
-                  عدد الأخطاء: {result.mistakes.length}
-                </p>
-              )}
+          {/* Main controls */}
+          <div className="flex items-center justify-between px-6 py-4">
+            {/* Error count */}
+            <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-50">
+              <span className="text-sm font-medium text-red-700">أخطاء</span>
+              <span className="flex items-center justify-center min-w-[24px] h-6 px-2 text-xs text-white bg-red-500 rounded-full font-bold">
+                {errorCount}
+              </span>
             </div>
 
-            {/* Recognized Text */}
-            <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-              <h3 className="mb-2 text-sm font-medium text-zinc-500">ما تم التعرف عليه</h3>
-              <p className="text-lg leading-relaxed text-zinc-800 dark:text-zinc-200">
-                {result.recognized || "(لم يتم التعرف على أي نص)"}
-              </p>
-            </div>
+            {/* Mic button */}
+            <button
+              onClick={toggleListening}
+              disabled={revealedVerses.length === verses.length}
+              className={`
+                flex items-center justify-center w-20 h-20 rounded-full shadow-2xl transition-all transform
+                ${isListening
+                  ? "bg-gradient-to-br from-red-500 to-rose-600 animate-pulse scale-110"
+                  : revealedVerses.length === verses.length
+                    ? "bg-gray-300 cursor-not-allowed"
+                    : "bg-gradient-to-br from-emerald-500 to-teal-600 hover:scale-110 active:scale-95"
+                }
+              `}
+            >
+              {isListening ? <StopIcon /> : <MicIcon />}
+            </button>
 
-            {/* Try Again */}
-            <div className="text-center">
-              <button
-                onClick={handleReset}
-                className="rounded-lg bg-zinc-900 px-6 py-3 font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-              >
-                حاول مرة أخرى
-              </button>
-            </div>
+            {/* Reset */}
+            <button
+              onClick={handleReset}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 transition"
+            >
+              <RefreshIcon />
+              <span className="text-sm font-medium">إعادة</span>
+            </button>
           </div>
-        )}
-
-        {/* Empty State */}
-        {!selectedSurah && (
-          <div className="text-center py-12">
-            <div className="text-6xl mb-4">📖</div>
-            <p className="text-zinc-500 dark:text-zinc-400">
-              اختر سورة من القائمة للبدء
-            </p>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function MicIcon() {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
       <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
       <line x1="12" x2="12" y1="19" y2="22" />
@@ -360,8 +460,19 @@ function MicIcon() {
 
 function StopIcon() {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
-      <rect x="6" y="6" width="12" height="12" rx="1" />
+    <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="white">
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+    </svg>
+  );
+}
+
+function RefreshIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+      <path d="M21 3v5h-5" />
+      <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+      <path d="M3 21v-5h5" />
     </svg>
   );
 }
