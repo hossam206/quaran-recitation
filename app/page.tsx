@@ -99,12 +99,13 @@ export default function Home() {
     const spokenWords = normalizedSpoken.split(/\s+/).filter(Boolean);
 
     let vIdx = currentVerseIndex;
-    let wIdx = currentWordIndex;
+    let wIdx = currentWordIndex; // position in current verse
+    let spokenIdx = 0; // position in spoken words array
     const newReveals: WordStatus[] = [];
     let newErrors = 0;
 
     // اكشف كل الكلمات اللي اتقالت دفعة واحدة!
-    while (vIdx < verses.length && wIdx < spokenWords.length) {
+    while (vIdx < verses.length && spokenIdx < spokenWords.length) {
       const currentVerse = verses[vIdx];
       const normalizedExpected = normalizeArabic(currentVerse.text);
       const expectedWords = normalizedExpected.split(/\s+/).filter(Boolean);
@@ -116,7 +117,7 @@ export default function Home() {
         continue;
       }
 
-      const spokenWord = spokenWords[wIdx];
+      const spokenWord = spokenWords[spokenIdx];
       const expectedWord = expectedWords[wIdx];
       const isCorrect = spokenWord === expectedWord;
 
@@ -133,16 +134,20 @@ export default function Home() {
       }
 
       wIdx++;
+      spokenIdx++;
     }
 
     // Update state with all new reveals at once
     if (newReveals.length > 0) {
       setRevealedWords(prev => [...prev, ...newReveals]);
       setErrorCount(prev => prev + newErrors);
-      setCurrentWordIndex(wIdx);
+
+      // Update position
       if (vIdx > currentVerseIndex) {
         setCurrentVerseIndex(vIdx);
-        setCurrentWordIndex(0);
+        setCurrentWordIndex(wIdx);
+      } else {
+        setCurrentWordIndex(wIdx);
       }
     }
   }, [verses, currentVerseIndex, currentWordIndex]);
