@@ -93,45 +93,57 @@ export default function Home() {
   }, [selectedSurah]);
 
   const checkNextWord = useCallback((spokenText: string) => {
-    if (!verses.length || currentVerseIndex >= verses.length) return;
+    if (!verses.length) return;
 
-    const currentVerse = verses[currentVerseIndex];
     const normalizedSpoken = normalizeArabic(spokenText);
-    const normalizedExpected = normalizeArabic(currentVerse.text);
-
     const spokenWords = normalizedSpoken.split(/\s+/).filter(Boolean);
-    const expectedWords = normalizedExpected.split(/\s+/).filter(Boolean);
 
-    // Check if we have spoken the next word
-    if (spokenWords.length > currentWordIndex) {
-      const spokenWord = spokenWords[currentWordIndex];
-      const expectedWord = expectedWords[currentWordIndex];
+    let vIdx = currentVerseIndex;
+    let wIdx = currentWordIndex;
+    const newReveals: WordStatus[] = [];
+    let newErrors = 0;
 
-      if (!expectedWord) {
-        // Move to next verse
-        setCurrentVerseIndex(prev => prev + 1);
-        setCurrentWordIndex(0);
-        setAccumulatedText("");
-        return;
+    // اكشف كل الكلمات اللي اتقالت دفعة واحدة!
+    while (vIdx < verses.length && wIdx < spokenWords.length) {
+      const currentVerse = verses[vIdx];
+      const normalizedExpected = normalizeArabic(currentVerse.text);
+      const expectedWords = normalizedExpected.split(/\s+/).filter(Boolean);
+
+      if (wIdx >= expectedWords.length) {
+        // Finished this verse, move to next
+        vIdx++;
+        wIdx = 0;
+        continue;
       }
 
+      const spokenWord = spokenWords[wIdx];
+      const expectedWord = expectedWords[wIdx];
       const isCorrect = spokenWord === expectedWord;
 
-      // Reveal this word
-      setRevealedWords(prev => [...prev, {
+      newReveals.push({
         verseNumber: currentVerse.verse,
-        wordIndex: currentWordIndex,
-        word: currentVerse.text.split(/\s+/)[currentWordIndex],
+        wordIndex: wIdx,
+        word: currentVerse.text.split(/\s+/)[wIdx],
         isCorrect
-      }]);
+      });
 
       if (!isCorrect) {
-        setErrorCount(prev => prev + 1);
+        newErrors++;
         playErrorSound();
       }
 
-      // Move to next word
-      setCurrentWordIndex(prev => prev + 1);
+      wIdx++;
+    }
+
+    // Update state with all new reveals at once
+    if (newReveals.length > 0) {
+      setRevealedWords(prev => [...prev, ...newReveals]);
+      setErrorCount(prev => prev + newErrors);
+      setCurrentWordIndex(wIdx);
+      if (vIdx > currentVerseIndex) {
+        setCurrentVerseIndex(vIdx);
+        setCurrentWordIndex(0);
+      }
     }
   }, [verses, currentVerseIndex, currentWordIndex]);
 
