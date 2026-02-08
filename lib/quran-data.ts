@@ -28,6 +28,34 @@ export function stripDiacritics(text: string): string {
  */
 export function normalizeArabic(text: string): string {
   let normalized = stripDiacritics(text);
+  
+  // Handle Quranic letter sequences (Web Speech says "ألف لام ميم" instead of "الم")
+  const letterMappings: Record<string, string> = {
+    "ألف لام ميم": "الم",
+    "الف لام ميم": "الم",
+    "ألف لام ميم صاد": "المص",
+    "ألف لام راء": "الر",
+    "الف لام راء": "الر",
+    "ألف لام ميم راء": "المر",
+    "كاف ها يا عين صاد": "كهيعص",
+    "طه": "طه",
+    "طا ها": "طه",
+    "طاء ها": "طه",
+    "يا سين": "يس",
+    "يا س": "يس",
+    "صاد": "ص",
+    "حم": "حم",
+    "حا ميم": "حم",
+    "حا ميم عين سين قاف": "حمعسق",
+    "قاف": "ق",
+    "نون": "ن",
+  };
+  
+  // Apply letter sequence mappings
+  for (const [spoken, quranic] of Object.entries(letterMappings)) {
+    normalized = normalized.replace(new RegExp(spoken, 'g'), quranic);
+  }
+  
   // Normalize alef variants (أ إ آ ٱ) → ا
   normalized = normalized.replace(/[\u0623\u0625\u0622\u0671]/g, "\u0627");
   // Normalize taa marbuta → haa
