@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getVerse } from "@/lib/quran-data";
+import { getSurahVerses, normalizeArabic } from "@/lib/quran-data";
 import { transcribeAudio } from "@/lib/speech-to-text";
-import { compareRecitation } from "@/lib/compare";
-import { detectVerse } from "@/lib/detect-verse";
-import { CheckRecitationResponse } from "@/lib/types";
+import { Mistake } from "@/lib/types";
 
 // Max audio file size: 10MB
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+interface VerseResult {
+  ayah: number;
+  expected: string;
+  recognized: string;
+  mistakes: Mistake[];
+  isCorrect: boolean;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,12 +20,18 @@ export async function POST(request: NextRequest) {
 
     // Validate inputs
     const surahStr = formData.get("surah");
-    const ayahStr = formData.get("ayah"); // Now optional
     const audioFile = formData.get("audio");
+
+    if (!surahStr) {
+      return NextResponse.json(
+        { success: false, error: "Missing surah number" },
+        { status: 400 }
+      );
+    }
 
     if (!audioFile) {
       return NextResponse.json(
-        { success: false, error: "Missing required field: audio" },
+        { success: false, error: "Missing audio file" },
         { status: 400 }
       );
     }
@@ -38,86 +50,102 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Parse optional surah/ayah
-    const surah = surahStr ? parseInt(surahStr as string, 10) : undefined;
-    const ayah = ayahStr ? parseInt(ayahStr as string, 10) : undefined;
+    const surah = parseInt(surahStr as string, 10);
+    if (isNaN(surah) || surah < 1 || surah > 114) {
+      return NextResponse.json(
+        { success: false, error: "Invalid surah number" },
+        { status: 400 }
+      );
+    }
+
+    // Get surah verses
+    const verses = getSurahVerses(surah);
+    if (verses.length === 0) {
+      return NextResponse.json(
+        { success: false, error: "Surah not found" },
+        { status: 404 }
+      );
+    }
 
     // Transcribe audio
     const audioBuffer = await audioFile.arrayBuffer();
     const filename = audioFile.name || "recording.webm";
     const sttResult = await transcribeAudio(audioBuffer, filename);
 
-    // If no recognized text, return early
     if (!sttResult.text || sttResult.text.trim() === "") {
       return NextResponse.json({
         success: true,
         recognized: "",
-        expected: "",
-        score: 0,
         mistakes: [],
-        correctedVerse: "",
-      } as CheckRecitationResponse);
+        score: 0,
+        verseResults: [],
+      });
     }
 
-    // Determine which verse to compare against
-    if (ayah !== undefined && surah !== undefined) {
-      // Manual mode: use specified verse
-      const verse = getVerse(surah, ayah);
-      if (!verse) {
-        return NextResponse.json(
-          { success: false, error: `Verse ${surah}:${ayah} not found` },
-          { status: 404 }
-        );
+    // Normalize recognized text
+    const recognizedNormalized = normalizeArabic(sttResult.text);
+    const recognizedWords = recognizedNormalized.split(" ").filter(Boolean);
+
+    // Compare against each verse
+    const mistakes: Mistake[] = [];
+    let totalExpectedWords = 0;
+    let correctWords = 0;
+    let currentWordIndex = 0;
+
+    for (const verse of verses) {
+      const verseWords = verse.textClean.split(" ").filter(Boolean);
+      totalExpectedWords += verseWords.length;
+
+      // Check if recognized text contains this verse's words
+      for (let i = 0; i < verseWords.length; i++) {
+        const expectedWord = verseWords[i];
+        const recognizedWord = recognizedWords[currentWordIndex + i];
+
+        if (!recognizedWord) {
+          // Word is missing
+          mistakes.push({
+            type: "missing",
+            position: verse.ayah - 1, // 0-indexed for the verse
+            expected: expectedWord,
+          });
+        } else if (normalizeArabic(recognizedWord) !== normalizeArabic(expectedWord)) {
+          // Word is wrong
+          mistakes.push({
+            type: "wrong",
+            position: verse.ayah - 1,
+            expected: expectedWord,
+            actual: recognizedWord,
+          });
+        } else {
+          correctWords++;
+        }
       }
 
-      const comparison = compareRecitation(sttResult.text, verse.textClean);
-
-      const response: CheckRecitationResponse = {
-        success: true,
-        recognized: sttResult.text,
-        expected: verse.text,
-        score: comparison.score,
-        mistakes: comparison.mistakes,
-        correctedVerse: verse.text,
-      };
-
-      return NextResponse.json(response);
+      currentWordIndex += verseWords.length;
     }
 
-    // Auto-detect mode: find best matching verse
-    const detected = detectVerse(sttResult.text, surah);
-
-    if (!detected) {
-      // No match found - return the recognized text without comparison
-      return NextResponse.json({
-        success: true,
-        recognized: sttResult.text,
-        expected: "",
-        score: 0,
-        mistakes: [],
-        correctedVerse: "",
-      } as CheckRecitationResponse);
+    // Check for extra words
+    if (currentWordIndex < recognizedWords.length) {
+      for (let i = currentWordIndex; i < recognizedWords.length; i++) {
+        mistakes.push({
+          type: "extra",
+          position: verses.length - 1, // Last verse
+          actual: recognizedWords[i],
+        });
+      }
     }
 
-    // Compare with detected verse
-    const comparison = compareRecitation(sttResult.text, detected.verse.textClean);
+    // Calculate score
+    const score = totalExpectedWords > 0
+      ? Math.max(0, Math.round((correctWords / totalExpectedWords) * 100))
+      : 0;
 
-    const response: CheckRecitationResponse = {
+    return NextResponse.json({
       success: true,
       recognized: sttResult.text,
-      expected: detected.verse.text,
-      score: comparison.score,
-      mistakes: comparison.mistakes,
-      correctedVerse: detected.verse.text,
-      detectedVerse: {
-        surah: detected.surah,
-        ayah: detected.ayah,
-        confidence: detected.confidence,
-        matchedText: detected.matchedText,
-      },
-    };
-
-    return NextResponse.json(response);
+      mistakes,
+      score,
+    });
   } catch (error) {
     console.error("Check recitation error:", error);
     const message = error instanceof Error ? error.message : "Internal server error";

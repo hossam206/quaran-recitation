@@ -1,4 +1,15 @@
 import { Verse } from "./types";
+import surahsData from "@/data/surahs.json";
+import quranData from "@/data/quran.json";
+
+export interface Surah {
+  number: number;
+  name: string;
+  englishName: string;
+}
+
+// Type for the quran.json structure
+type QuranData = Record<string, Array<{ chapter: number; verse: number; text: string }>>;
 
 /**
  * Strip Arabic diacritics (tashkeel) for comparison purposes.
@@ -26,96 +37,33 @@ export function normalizeArabic(text: string): string {
   return normalized;
 }
 
-// Verse data: starting with Al-Fatiha and Al-Ikhlas.
-// In production, load from a database or the Quran API.
-const verses: Verse[] = [
-  // Surah Al-Fatiha (1)
-  {
-    surah: 1,
-    ayah: 1,
-    text: "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ",
-    textClean: "",
-  },
-  {
-    surah: 1,
-    ayah: 2,
-    text: "الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ",
-    textClean: "",
-  },
-  {
-    surah: 1,
-    ayah: 3,
-    text: "الرَّحْمَٰنِ الرَّحِيمِ",
-    textClean: "",
-  },
-  {
-    surah: 1,
-    ayah: 4,
-    text: "مَالِكِ يَوْمِ الدِّينِ",
-    textClean: "",
-  },
-  {
-    surah: 1,
-    ayah: 5,
-    text: "إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ",
-    textClean: "",
-  },
-  {
-    surah: 1,
-    ayah: 6,
-    text: "اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ",
-    textClean: "",
-  },
-  {
-    surah: 1,
-    ayah: 7,
-    text: "صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ",
-    textClean: "",
-  },
-
-  // Surah Al-Ikhlas (112)
-  {
-    surah: 112,
-    ayah: 1,
-    text: "قُلْ هُوَ اللَّهُ أَحَدٌ",
-    textClean: "",
-  },
-  {
-    surah: 112,
-    ayah: 2,
-    text: "اللَّهُ الصَّمَدُ",
-    textClean: "",
-  },
-  {
-    surah: 112,
-    ayah: 3,
-    text: "لَمْ يَلِدْ وَلَمْ يُولَدْ",
-    textClean: "",
-  },
-  {
-    surah: 112,
-    ayah: 4,
-    text: "وَلَمْ يَكُن لَّهُ كُفُوًا أَحَدٌ",
-    textClean: "",
-  },
-];
-
-// Pre-compute clean text for all verses
-for (const verse of verses) {
-  verse.textClean = normalizeArabic(verse.text);
+// Get all surahs
+export function getAvailableSurahs(): Surah[] {
+  return surahsData as Surah[];
 }
 
-export function getVerse(surah: number, ayah: number): Verse | undefined {
-  return verses.find((v) => v.surah === surah && v.ayah === ayah);
+// Get a specific surah by number
+export function getSurah(surahNumber: number): Surah | undefined {
+  return (surahsData as Surah[]).find((s) => s.number === surahNumber);
 }
 
-export function getSurahVerses(surah: number): Verse[] {
-  return verses.filter((v) => v.surah === surah);
+// Get all verses for a surah
+export function getSurahVerses(surahNumber: number): Verse[] {
+  const quran = quranData as QuranData;
+  const verses = quran[String(surahNumber)];
+  
+  if (!verses) return [];
+  
+  return verses.map((v) => ({
+    surah: v.chapter,
+    ayah: v.verse,
+    text: v.text,
+    textClean: normalizeArabic(v.text),
+  }));
 }
 
-export function getAvailableSurahs(): { number: number; name: string }[] {
-  return [
-    { number: 1, name: "الفاتحة" },
-    { number: 112, name: "الإخلاص" },
-  ];
+// Get a specific verse
+export function getVerse(surahNumber: number, ayahNumber: number): Verse | undefined {
+  const verses = getSurahVerses(surahNumber);
+  return verses.find((v) => v.ayah === ayahNumber);
 }
