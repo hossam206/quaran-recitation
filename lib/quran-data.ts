@@ -13,10 +13,15 @@ type QuranData = Record<string, Array<{ chapter: number; verse: number; text: st
 
 /**
  * Strip Arabic diacritics (tashkeel) for comparison purposes.
- * Diacritics range: U+0610–U+061A, U+064B–U+065F, U+0670, U+06D6–U+06ED
+ * Includes all diacritics, hamza marks, tanween, sukun, shadda, etc.
  */
 export function stripDiacritics(text: string): string {
-  return text.replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]/g, "");
+  return text
+    .replace(/[\u064B-\u065F]/g, "") // Tanween, Sukun, Shadda, etc.
+    .replace(/[\u0610-\u061A]/g, "") // Arabic signs
+    .replace(/[\u06D6-\u06ED]/g, "") // Quranic annotation signs
+    .replace(/\u0670/g, "")            // Superscript alef
+    .replace(/[\u0653-\u0656]/g, ""); // Additional marks
 }
 
 /**
@@ -58,8 +63,14 @@ export function normalizeArabic(text: string): string {
   
   // Normalize alef variants (أ إ آ ٱ) → ا
   normalized = normalized.replace(/[\u0623\u0625\u0622\u0671]/g, "\u0627");
+  
+  // Normalize alef maqsura (ى) → ya (ي)
+  // This fixes words like "يَدَا" where the final alef is pronounced as ya
+  normalized = normalized.replace(/\u0649/g, "\u064A");
+  
   // Normalize taa marbuta → haa
   normalized = normalized.replace(/\u0629/g, "\u0647");
+  
   // Collapse whitespace
   normalized = normalized.replace(/\s+/g, " ").trim();
   return normalized;

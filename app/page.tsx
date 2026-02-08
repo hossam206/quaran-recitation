@@ -37,6 +37,8 @@ export default function Home() {
   const [errorCount, setErrorCount] = useState(0);
   const [accumulatedText, setAccumulatedText] = useState("");
   const [debugSpokenText, setDebugSpokenText] = useState("");
+  const [debugNormalizedSpoken, setDebugNormalizedSpoken] = useState("");
+  const [debugExpectedWord, setDebugExpectedWord] = useState("");
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
@@ -82,6 +84,12 @@ export default function Home() {
         .then((data) => {
           setVerses(data);
           setLoadingVerses(false);
+          // Auto-start recording!
+          setTimeout(() => {
+            if (!isListening && recognitionRef.current === null) {
+              startRecording();
+            }
+          }, 500);
         })
         .catch((err) => {
           console.error(err);
@@ -97,6 +105,9 @@ export default function Home() {
 
     const normalizedSpoken = normalizeArabic(spokenText);
     const spokenWords = normalizedSpoken.split(/\s+/).filter(Boolean);
+
+    // Debug: Show normalized words
+    setDebugNormalizedSpoken(spokenWords.join(" "));
 
     let vIdx = currentVerseIndex;
     let wIdx = currentWordIndex; // position in current verse
@@ -119,6 +130,12 @@ export default function Home() {
 
       const spokenWord = spokenWords[spokenIdx];
       const expectedWord = expectedWords[wIdx];
+
+      // Debug: Show what we're comparing
+      if (spokenIdx === 0) {
+        setDebugExpectedWord(`المتوقع: "${expectedWord}" | المسموع: "${spokenWord}"`);
+      }
+
       const isCorrect = spokenWord === expectedWord;
 
       newReveals.push({
@@ -152,60 +169,75 @@ export default function Home() {
     }
   }, [verses, currentVerseIndex, currentWordIndex]);
 
+  const startRecording = useCallback(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("المتصفح لا يدعم التعرف على الكلام. استخدم Chrome.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "ar-SA";
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    recognition.onresult = (event: any) => {
+      let interimTranscript = "";
+      let finalTranscript = accumulatedText;
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += " " + transcript;
+        } else {
+          interimTranscript += transcript;
+        }
+      }
+
+      const fullText = (finalTranscript + " " + interimTranscript).trim();
+      setAccumulatedText(finalTranscript);
+      setDebugSpokenText(fullText);
+
+      if (fullText) {
+        checkNextWord(fullText);
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error("Error:", event.error);
+      // Auto-restart on error (except when manually stopped)
+      if (event.error !== 'aborted') {
+        setTimeout(() => {
+          if (recognitionRef.current) {
+            startRecording();
+          }
+        }, 1000);
+      }
+    };
+
+    recognition.onend = () => {
+      // Auto-restart when it stops (keeps mic always on)
+      if (recognitionRef.current && verses.length > 0) {
+        setTimeout(() => startRecording(), 500);
+      }
+    };
+
+    recognition.start();
+    recognitionRef.current = recognition;
+    setIsListening(true);
+  }, [accumulatedText, checkNextWord, verses.length]);
+
   const toggleListening = useCallback(() => {
     if (isListening) {
       if (recognitionRef.current) {
         recognitionRef.current.stop();
+        recognitionRef.current = null;
       }
       setIsListening(false);
     } else {
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (!SpeechRecognition) {
-        alert("المتصفح لا يدعم التعرف على الكلام. استخدم Chrome.");
-        return;
-      }
-
-      const recognition = new SpeechRecognition();
-      recognition.lang = "ar-SA";
-      recognition.continuous = true;
-      recognition.interimResults = true;
-
-      recognition.onresult = (event: any) => {
-        let interimTranscript = "";
-        let finalTranscript = accumulatedText;
-
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            finalTranscript += " " + transcript;
-          } else {
-            interimTranscript += transcript;
-          }
-        }
-
-        const fullText = (finalTranscript + " " + interimTranscript).trim();
-        setAccumulatedText(finalTranscript);
-        setDebugSpokenText(fullText);
-
-        if (fullText) {
-          checkNextWord(fullText);
-        }
-      };
-
-      recognition.onerror = (event: any) => {
-        console.error("Error:", event.error);
-        setIsListening(false);
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
-      recognition.start();
-      recognitionRef.current = recognition;
-      setIsListening(true);
+      startRecording();
     }
-  }, [isListening, accumulatedText, checkNextWord]);
+  }, [isListening, startRecording]);
 
   const handleReset = () => {
     if (recognitionRef.current) {
@@ -429,15 +461,33 @@ export default function Home() {
           <div className="fixed bottom-0 left-0 right-0 md:mr-0 z-30 px-4 md:px-8 pb-4 md:pb-8 pt-4 pointer-events-none">
             <div className="max-w-4xl mx-auto pointer-events-auto">
 
-              {/* Spoken Text Popover */}
+              {/* Spoken Text Debug */}
               {debugSpokenText && (
-                <div className="mb-2 md:mb-4 animate-slide-up">
-                  <div className="bg-emerald-900/90 backdrop-blur-md text-emerald-50 px-4 md:px-6 py-2 md:py-3 rounded-xl md:rounded-2xl shadow-2xl border border-emerald-700/50 flex items-center gap-3">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                    <p className="text-[10px] md:text-sm font-medium tracking-wide truncate rtl:text-right flex-1">
+                <div className="mb-2 space-y-1 animate-slide-up">
+                  <div className="bg-emerald-900/90 backdrop-blur-md text-emerald-50 px-4 md:px-6 py-2 rounded-xl md:rounded-2xl shadow-2xl border border-emerald-700/50">
+                    <div className="text-[9px] md:text-[10px] text-emerald-300 mb-1">النص المسموع (Original):</div>
+                    <p className="text-[10px] md:text-sm font-medium truncate">
                       {debugSpokenText}
                     </p>
                   </div>
+
+                  {debugNormalizedSpoken && (
+                    <div className="bg-blue-900/90 backdrop-blur-md text-blue-50 px-4 md:px-6 py-2 rounded-xl md:rounded-2xl shadow-2xl border border-blue-700/50">
+                      <div className="text-[9px] md:text-[10px] text-blue-300 mb-1">بعد التطبيع (Normalized):</div>
+                      <p className="text-[10px] md:text-sm font-medium truncate font-mono">
+                        {debugNormalizedSpoken}
+                      </p>
+                    </div>
+                  )}
+
+                  {debugExpectedWord && (
+                    <div className="bg-amber-900/90 backdrop-blur-md text-amber-50 px-4 md:px-6 py-2 rounded-xl md:rounded-2xl shadow-2xl border border-amber-700/50">
+                      <div className="text-[9px] md:text-[10px] text-amber-300 mb-1">المقارنة:</div>
+                      <p className="text-[10px] md:text-sm font-medium truncate font-mono">
+                        {debugExpectedWord}
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 
