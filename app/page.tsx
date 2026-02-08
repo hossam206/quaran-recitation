@@ -22,9 +22,10 @@ export default function Home() {
 
   const [isListening, setIsListening] = useState(false);
   const [currentVerseIndex, setCurrentVerseIndex] = useState(0);
+  const [revealedVerses, setRevealedVerses] = useState<Set<number>>(new Set());
   const [verseColors, setVerseColors] = useState<Map<number, string>>(new Map());
   const [errorCount, setErrorCount] = useState(0);
-  const [accumulatedText, setAccumulatedText] = useState("");
+  const [interimText, setInterimText] = useState("");
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
@@ -58,9 +59,10 @@ export default function Home() {
     if (selectedSurah) {
       setLoadingVerses(true);
       setCurrentVerseIndex(0);
+      setRevealedVerses(new Set());
       setVerseColors(new Map());
       setErrorCount(0);
-      setAccumulatedText("");
+      setInterimText("");
 
       fetch(`/api/verses?surah=${selectedSurah}`)
         .then((res) => res.json())
@@ -88,19 +90,21 @@ export default function Home() {
     const expectedWords = normalizedExpected.split(/\s+/).filter(Boolean);
 
     let matches = 0;
-    const minLength = Math.min(spokenWords.length, expectedWords.length);
-
-    for (let i = 0; i < minLength; i++) {
+    for (let i = 0; i < Math.min(spokenWords.length, expectedWords.length); i++) {
       if (spokenWords[i] === expectedWords[i]) {
         matches++;
       }
     }
 
-    const accuracy = matches / expectedWords.length;
+    // Check if we have enough words (at least 60% of the verse)
+    if (spokenWords.length >= Math.ceil(expectedWords.length * 0.6)) {
+      const accuracy = matches / expectedWords.length;
+      const isCorrect = accuracy >= 0.75;
 
-    if (matches >= Math.ceil(expectedWords.length * 0.7)) {
-      const isCorrect = accuracy >= 0.7;
+      // Reveal verse
+      setRevealedVerses(prev => new Set(prev).add(currentVerse.verse));
 
+      // Set color
       setVerseColors(prev => {
         const newMap = new Map(prev);
         newMap.set(currentVerse.verse, isCorrect ? "correct" : "wrong");
@@ -112,8 +116,9 @@ export default function Home() {
         playErrorSound();
       }
 
+      // Move to next verse
       setCurrentVerseIndex(prev => prev + 1);
-      setAccumulatedText("");
+      setInterimText("");
     }
   }, [verses, currentVerseIndex]);
 
@@ -133,16 +138,29 @@ export default function Home() {
       const recognition = new SpeechRecognition();
       recognition.lang = "ar-SA";
       recognition.continuous = true;
-      recognition.interimResults = false;
+      recognition.interimResults = true; // أسرع!
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       recognition.onresult = (event: any) => {
-        const last = event.results.length - 1;
-        const transcript = event.results[last][0].transcript;
+        let interimTranscript = "";
+        let finalTranscript = interimText;
 
-        const newText = accumulatedText + " " + transcript;
-        setAccumulatedText(newText);
-        checkVerse(newText.trim());
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += " " + transcript;
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+
+        const fullText = (finalTranscript + " " + interimTranscript).trim();
+        setInterimText(finalTranscript);
+
+        // Check in real-time
+        if (fullText) {
+          checkVerse(fullText);
+        }
       };
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -154,7 +172,7 @@ export default function Home() {
       recognitionRef.current = recognition;
       setIsListening(true);
     }
-  }, [isListening, accumulatedText, checkVerse]);
+  }, [isListening, interimText, checkVerse]);
 
   const handleReset = () => {
     if (recognitionRef.current) {
@@ -162,19 +180,47 @@ export default function Home() {
     }
     setIsListening(false);
     setCurrentVerseIndex(0);
+    setRevealedVerses(new Set());
     setVerseColors(new Map());
     setErrorCount(0);
-    setAccumulatedText("");
+    setInterimText("");
   };
 
-  const getVerseColor = (verseNumber: number) => {
-    const color = verseColors.get(verseNumber);
-    if (color === "correct") return "text-emerald-600";
-    if (color === "wrong") return "text-red-500";
-    if (verses[currentVerseIndex]?.verse === verseNumber && isListening) {
-      return "text-amber-600 bg-amber-50 rounded px-1";
+  const getVerseDisplay = (verse: VerseData) => {
+    const isRevealed = revealedVerses.has(verse.verse);
+    const color = verseColors.get(verse.verse);
+    const isCurrent = verse.verse === verses[currentVerseIndex]?.verse && isListening;
+
+    if (!isRevealed) {
+      // Hidden - show placeholder
+      return (
+        <span key={verse.verse} className="inline-block">
+          <span className={`inline-block bg-gray-300 rounded h-8 animate-pulse ${isCurrent ? 'bg-amber-300' : ''}`} style={{ width: `${verse.text.length * 0.5}rem` }}>
+            {" "}
+          </span>
+          <span className="inline-flex items-center text-xl opacity-30 mx-1">
+            ﴿{verse.verse}﴾
+          </span>
+          {" "}
+        </span>
+      );
     }
-    return "text-gray-800";
+
+    // Revealed - show with color
+    return (
+      <span
+        key={verse.verse}
+        className={`transition-all duration-300 ${color === "correct" ? "text-gray-800" : "text-red-500 font-bold"
+          }`}
+      >
+        {verse.text}
+        {" "}
+        <span className="inline-flex items-center text-xl opacity-50">
+          ﴿{verse.verse}﴾
+        </span>
+        {" "}
+      </span>
+    );
   };
 
   const selectedSurahData = surahs.find(s => s.number === selectedSurah);
@@ -283,19 +329,7 @@ export default function Home() {
                   className="bg-white rounded-2xl shadow-sm border border-gray-200 p-12 text-3xl leading-[4rem]"
                   style={{ fontFamily: "Amiri, serif" }}
                 >
-                  {verses.map((verse) => (
-                    <span
-                      key={verse.verse}
-                      className={`transition-all duration-200 ${getVerseColor(verse.verse)}`}
-                    >
-                      {verse.text}
-                      {" "}
-                      <span className="inline-flex items-center text-xl opacity-50">
-                        ﴿{verse.verse}﴾
-                      </span>
-                      {" "}
-                    </span>
-                  ))}
+                  {verses.map((verse) => getVerseDisplay(verse))}
                 </div>
               </div>
             )}
