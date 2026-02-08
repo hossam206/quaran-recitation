@@ -65,11 +65,30 @@ export function normalizeArabic(text: string): string {
   normalized = normalized.replace(/[\u0623\u0625\u0622\u0671]/g, "\u0627");
   
   // Normalize alef maqsura (ى) → ya (ي)
-  // This fixes words like "يَدَا" where the final alef is pronounced as ya
   normalized = normalized.replace(/\u0649/g, "\u064A");
   
   // Normalize taa marbuta → haa
   normalized = normalized.replace(/\u0629/g, "\u0647");
+  
+  // CRITICAL: Handle Web Speech pronunciation variations
+  // Web Speech often adds or removes alef in the middle of words
+  // Examples: "الرحمان" vs "الرحمن", "قرءان" vs "قران"
+  // Strategy: Remove ALL non-initial alefs to normalize pronunciation
+  
+  // Split into words to preserve initial alef
+  const words = normalized.split(/\s+/);
+  const normalizedWords = words.map(word => {
+    if (word.length <= 2) return word; // Don't touch short words
+    
+    // Keep first character, remove middle alefs, keep last character
+    const first = word[0];
+    const middle = word.substring(1, word.length - 1).replace(/ا/g, '');
+    const last = word[word.length - 1];
+    
+    return first + middle + last;
+  });
+  
+  normalized = normalizedWords.join(' ');
   
   // Collapse whitespace
   normalized = normalized.replace(/\s+/g, " ").trim();

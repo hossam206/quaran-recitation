@@ -22,6 +22,13 @@ interface WordStatus {
   isCorrect: boolean;
 }
 
+interface NormalizedVerse {
+  verse: number;
+  normalizedText: string;
+  normalizedWords: string[];
+  originalWords: string[];
+}
+
 export default function Home() {
   const [surahs, setSurahs] = useState<Surah[]>([]);
   const [selectedSurah, setSelectedSurah] = useState<number | null>(null);
@@ -41,10 +48,12 @@ export default function Home() {
 
   // Refs to allow the speech recognition closure to ALWAYS see the latest state
   const versesRef = useRef<VerseData[]>([]);
+  const normalizedVersesRef = useRef<NormalizedVerse[]>([]);
   const vIdxRef = useRef(0);
   const wIdxRef = useRef(0);
   const revealedWordsRef = useRef<WordStatus[]>([]);
   const isListeningRef = useRef(false);
+  const lastProcessedTimeRef = useRef(0);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
@@ -73,6 +82,20 @@ export default function Home() {
       .then((data) => setSurahs(data))
       .catch(console.error);
   }, []);
+
+  // Memoize normalized verses to avoid repeated normalization
+  const normalizedVerses = useMemo(() => {
+    return verses.map(v => ({
+      verse: v.verse,
+      normalizedText: normalizeArabic(v.text),
+      normalizedWords: normalizeArabic(v.text).split(/\s+/).filter(Boolean),
+      originalWords: v.text.split(/\s+/).filter(Boolean)
+    }));
+  }, [verses]);
+
+  useEffect(() => {
+    normalizedVersesRef.current = normalizedVerses;
+  }, [normalizedVerses]);
 
   useEffect(() => {
     if (selectedSurah) {
@@ -112,6 +135,7 @@ export default function Home() {
     } else {
       setVerses([]);
       versesRef.current = [];
+      normalizedVersesRef.current = [];
     }
   }, [selectedSurah]);
 
@@ -124,25 +148,27 @@ export default function Home() {
   }, [currentVerseIndex, currentWordIndex, revealedWords, isListening]);
 
   const processSpokenText = useCallback((spokenText: string) => {
-    const localVerses = versesRef.current;
-    if (!localVerses.length) return;
+    // Throttle: Only process every 200ms to avoid excessive re-renders
+    const now = Date.now();
+    if (now - lastProcessedTimeRef.current < 200) return;
+    lastProcessedTimeRef.current = now;
+
+    const localNormalizedVerses = normalizedVersesRef.current;
+    if (!localNormalizedVerses.length) return;
 
     const normalizedSpoken = normalizeArabic(spokenText);
     const spokenWords = normalizedSpoken.split(/\s+/).filter(Boolean);
     if (!spokenWords.length) return;
 
-    // We only care about the LATEST few words spoken to keep it responsive
-    // and avoid matching old parts of the transcript.
     const latestSpokenWord = spokenWords[spokenWords.length - 1];
 
+    // Batch state updates to minimize re-renders
     setDebugNormalizedSpoken(spokenWords.join(" "));
 
-    // Logic: Look ahead in the next ~5 words to find a match for the latest spoken word
     let foundMatch = false;
     let matchVIdx = vIdxRef.current;
     let matchWIdx = wIdxRef.current;
 
-    // Look ahead window
     const windowSize = 8;
     let checkedCount = 0;
 
@@ -151,39 +177,39 @@ export default function Home() {
 
     const skippedReveals: WordStatus[] = [];
 
-    while (tempV < localVerses.length && checkedCount < windowSize) {
-      const verseText = localVerses[tempV].text;
-      const expectedWords = normalizeArabic(verseText).split(/\s+/).filter(Boolean);
-      const originalWords = verseText.split(/\s+/).filter(Boolean);
+    // Use cached normalized verses (no repeated normalization!)
+    while (tempV < localNormalizedVerses.length && checkedCount < windowSize) {
+      const normalizedVerse = localNormalizedVerses[tempV];
 
-      if (tempW >= expectedWords.length) {
+      if (tempW >= normalizedVerse.normalizedWords.length) {
         tempV++;
         tempW = 0;
         continue;
       }
 
-      const expectedWord = expectedWords[tempW];
-      setDebugExpectedWord(`البحث عن: "${expectedWord}" | المسموع: "${latestSpokenWord}"`);
+      const expectedWord = normalizedVerse.normalizedWords[tempW];
+
+      // Only update debug on first check to reduce re-renders
+      if (checkedCount === 0) {
+        setDebugExpectedWord(`البحث: "${expectedWord}" | المسموع: "${latestSpokenWord}"`);
+      }
 
       if (latestSpokenWord === expectedWord) {
-        // MATCH FOUND!
         foundMatch = true;
         matchVIdx = tempV;
         matchWIdx = tempW;
         break;
       }
 
-      // If no match yet, track this as a potentially skipped word
-      // but only if we haven't already revealed it
       const alreadyRevealed = revealedWordsRef.current.some(rw =>
-        rw.verseNumber === localVerses[tempV].verse && rw.wordIndex === tempW
+        rw.verseNumber === normalizedVerse.verse && rw.wordIndex === tempW
       );
 
       if (!alreadyRevealed) {
         skippedReveals.push({
-          verseNumber: localVerses[tempV].verse,
+          verseNumber: normalizedVerse.verse,
           wordIndex: tempW,
-          word: originalWords[tempW],
+          word: normalizedVerse.originalWords[tempW],
           isCorrect: false
         });
       }
@@ -193,18 +219,17 @@ export default function Home() {
     }
 
     if (foundMatch) {
-      // Commit the match and any skips before it
-      const currentOriginalWords = localVerses[matchVIdx].text.split(/\s+/).filter(Boolean);
+      const matchedVerse = localNormalizedVerses[matchVIdx];
       const matchReveal: WordStatus = {
-        verseNumber: localVerses[matchVIdx].verse,
+        verseNumber: matchedVerse.verse,
         wordIndex: matchWIdx,
-        word: currentOriginalWords[matchWIdx],
+        word: matchedVerse.originalWords[matchWIdx],
         isCorrect: true
       };
 
       const allNewReveals = [...skippedReveals, matchReveal];
 
-      // Update state
+      // Batch state updates
       setRevealedWords(prev => [...prev, ...allNewReveals]);
       setErrorCount(prev => prev + skippedReveals.length);
 
@@ -212,22 +237,16 @@ export default function Home() {
         playErrorSound();
       }
 
-      // Move pointer to AFTER the match
       let nextW = matchWIdx + 1;
       let nextV = matchVIdx;
 
-      // Check if we reached end of verse
-      const currentExpectedWords = normalizeArabic(localVerses[matchVIdx].text).split(/\s+/).filter(Boolean);
-      if (nextW >= currentExpectedWords.length) {
+      if (nextW >= matchedVerse.normalizedWords.length) {
         nextV++;
         nextW = 0;
       }
 
       setCurrentVerseIndex(nextV);
       setCurrentWordIndex(nextW);
-
-      // Important: clear the transcript ref to avoid re-matching the same word
-      recognitionRef.current.abortTranscript = true;
     }
   }, []);
 
@@ -509,20 +528,12 @@ export default function Home() {
           <div className="fixed bottom-0 left-0 right-0 z-30 px-4 md:px-8 pb-4 md:pb-8 pt-4 pointer-events-none">
             <div className="max-w-4xl mx-auto pointer-events-auto">
               {debugSpokenText && (
-                <div className="mb-2 space-y-1 animate-slide-up">
-                  <div className="bg-emerald-900/90 backdrop-blur-md text-emerald-50 px-4 py-2 rounded-xl text-[10px] md:text-xs">
-                    <span className="opacity-50">مسموع: </span>{debugSpokenText}
+                <div className="mb-2 animate-slide-up">
+                  <div className="bg-emerald-900/90 backdrop-blur-md text-emerald-50 px-4 py-2 rounded-xl text-xs md:text-sm shadow-2xl border border-emerald-700/50 flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                    <span className="opacity-60 text-[10px]">مسموع:</span>
+                    <span className="font-medium flex-1 truncate">{debugSpokenText}</span>
                   </div>
-                  {debugNormalizedSpoken && (
-                    <div className="bg-blue-900/90 backdrop-blur-md text-blue-50 px-4 py-2 rounded-xl text-[10px] md:text-xs">
-                      <span className="opacity-50">تطبيع: </span>{debugNormalizedSpoken}
-                    </div>
-                  )}
-                  {debugExpectedWord && (
-                    <div className="bg-amber-900/90 backdrop-blur-md text-amber-50 px-4 py-2 rounded-xl text-[10px] md:text-xs">
-                      {debugExpectedWord}
-                    </div>
-                  )}
                 </div>
               )}
 
