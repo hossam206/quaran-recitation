@@ -47,6 +47,7 @@ export default function Home() {
   const [debugNormalizedSpoken, setDebugNormalizedSpoken] = useState("");
   const [debugExpectedWord, setDebugExpectedWord] = useState("");
   const [showDebug, setShowDebug] = useState(false);
+  const [wrongWordFlash, setWrongWordFlash] = useState<string | null>(null);
 
   // Refs for speech recognition processing
   const versesRef = useRef<VerseData[]>([]);
@@ -64,6 +65,7 @@ export default function Home() {
   const recognitionRef = useRef<any>(null);
   // Auto-scroll ref
   const currentWordRef = useRef<HTMLSpanElement>(null);
+  const wrongWordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const playErrorSound = useCallback(() => {
     const now = Date.now();
@@ -124,12 +126,14 @@ export default function Home() {
       setDebugNormalizedSpoken("");
       setDebugExpectedWord("");
       setIsSidebarOpen(false);
+      setWrongWordFlash(null);
 
       vIdxRef.current = 0;
       wIdxRef.current = 0;
       revealedSetRef.current = new Set();
       lastProcessedFinalIndexRef.current = 0;
       if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+      if (wrongWordTimerRef.current) clearTimeout(wrongWordTimerRef.current);
 
       fetch(`/api/verses?surah=${selectedSurah}`)
         .then((res) => res.json())
@@ -372,6 +376,16 @@ export default function Home() {
             setCurrentVerseIndex(matchV);
             setCurrentWordIndex(matchW);
           }
+        } else {
+          // No match found — show what the user said as a wrong word flash
+          setWrongWordFlash(spokenWords.join(" "));
+          playErrorSound();
+          if (wrongWordTimerRef.current)
+            clearTimeout(wrongWordTimerRef.current);
+          wrongWordTimerRef.current = setTimeout(
+            () => setWrongWordFlash(null),
+            2000,
+          );
         }
       }
     },
@@ -490,12 +504,14 @@ export default function Home() {
     setDebugSpokenText("");
     setDebugNormalizedSpoken("");
     setDebugExpectedWord("");
+    setWrongWordFlash(null);
 
     vIdxRef.current = 0;
     wIdxRef.current = 0;
     revealedSetRef.current = new Set();
     lastProcessedFinalIndexRef.current = 0;
     if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+    if (wrongWordTimerRef.current) clearTimeout(wrongWordTimerRef.current);
   };
 
   const filteredSurahs = useMemo(() => {
@@ -566,9 +582,9 @@ export default function Home() {
             </div>
             <button
               onClick={() => setIsSidebarOpen(false)}
-              className="md:hidden p-2 text-emerald-400 active:scale-95 transition-transform"
+              className="md:hidden p-2 text-emerald-400 active:scale-95 transition-transform cursor-pointer"
             >
-              <CloseIcon className="w-6 h-6" />
+              <CloseIcon className="w-6 h-6 cursor-pointer" />
             </button>
           </div>
 
@@ -669,7 +685,7 @@ export default function Home() {
                       {accuracy}%
                     </span>
                   </div>
-                  <span className="text-[9px] font-bold text-emerald-600 hidden md:block">
+                  <span className="text-[13px] font-semibold text-emerald-600 hidden md:block">
                     الدقة
                   </span>
                 </div>
@@ -684,7 +700,7 @@ export default function Home() {
                     {errorCount}
                   </span>
                   <span
-                    className={`text-[9px] font-bold hidden md:block ${errorCount > 0 ? "text-rose-400" : "text-emerald-400"}`}
+                    className={`text-[13px] font-bold hidden md:block ${errorCount > 0 ? "text-rose-400" : "text-emerald-400"}`}
                   >
                     أخطاء
                   </span>
@@ -891,7 +907,7 @@ export default function Home() {
               <div className="flex gap-3 justify-center">
                 <button
                   onClick={handleReset}
-                  className="px-6 py-3 bg-gradient-to-l from-emerald-500 to-emerald-600 text-white rounded-2xl font-bold text-sm shadow-lg shadow-emerald-200/50 active:scale-95 transition-transform"
+                  className="px-6 py-3 bg-gradient-to-l from-emerald-500 to-emerald-600 text-white rounded-2xl font-bold text-sm shadow-lg shadow-emerald-200/50 active:scale-95 transition-transform "
                 >
                   إعادة التلاوة
                 </button>
@@ -904,6 +920,24 @@ export default function Home() {
                 >
                   سورة أخرى
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ─── Wrong Word Flash (centered on page) ─── */}
+        {wrongWordFlash && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+            <div className="animate-wrong-flash">
+              <div
+                className="bg-rose-500/90 backdrop-blur-md text-white px-8 md:px-12 py-4 md:py-5 rounded-2xl text-2xl md:text-4xl shadow-2xl shadow-rose-300/40 border border-rose-400/50 flex items-center justify-center gap-3"
+                style={{
+                  fontFamily: "var(--font-amiri), Amiri, serif",
+                  minWidth: "16rem",
+                }}
+              >
+                <span className="text-rose-200 text-xl md:text-2xl">✗</span>
+                <span className="font-bold">{wrongWordFlash}</span>
               </div>
             </div>
           </div>
