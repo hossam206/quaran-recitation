@@ -55,8 +55,8 @@ export default function Home() {
   const wIdxRef = useRef(0);
   const isListeningRef = useRef(false);
   const revealedSetRef = useRef(new Set<string>());
-  const currentSegmentIndexRef = useRef(-1);
-  const processedWordCountRef = useRef(0);
+  const lastProcessedFinalIndexRef = useRef(0);
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const audioContextRef = useRef<any>(null);
   const lastErrorSoundRef = useRef(0);
@@ -128,8 +128,8 @@ export default function Home() {
       vIdxRef.current = 0;
       wIdxRef.current = 0;
       revealedSetRef.current = new Set();
-      currentSegmentIndexRef.current = -1;
-      processedWordCountRef.current = 0;
+      lastProcessedFinalIndexRef.current = 0;
+      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
 
       fetch(`/api/verses?surah=${selectedSurah}`)
         .then((res) => res.json())
@@ -389,58 +389,68 @@ export default function Home() {
       return;
     }
 
-    currentSegmentIndexRef.current = -1;
-    processedWordCountRef.current = 0;
+    lastProcessedFinalIndexRef.current = 0;
 
     const recognition = new SpeechRecognition();
     recognition.lang = "ar-SA";
     recognition.continuous = true;
     recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
 
     recognition.onresult = (event: any) => {
-      const latestIndex = event.results.length - 1;
-      const latestResult = event.results[latestIndex];
-      const transcript = latestResult[0].transcript;
-
-      setDebugSpokenText(transcript);
-
-      if (!transcript) return;
-
-      const normalizedSpoken = normalizeArabic(transcript);
-      const allWords = normalizedSpoken.split(/\s+/).filter(Boolean);
-      if (!allWords.length) return;
-
-      if (latestIndex !== currentSegmentIndexRef.current) {
-        currentSegmentIndexRef.current = latestIndex;
-        processedWordCountRef.current = 0;
+      // Show the latest interim/final transcript in debug for real-time feedback
+      const latestResult = event.results[event.results.length - 1];
+      const latestTranscript = latestResult[0].transcript;
+      if (latestTranscript) {
+        setDebugSpokenText(latestTranscript);
       }
 
-      const newWords = allWords.slice(processedWordCountRef.current);
+      // Only process FINAL results for word advancement — interim results are
+      // unstable and change over time, causing phantom extra words
+      for (
+        let i = lastProcessedFinalIndexRef.current;
+        i < event.results.length;
+        i++
+      ) {
+        const result = event.results[i];
+        if (!result.isFinal) continue;
 
-      if (newWords.length > 0) {
-        setDebugNormalizedSpoken(newWords.join(" "));
-        processNewWords(newWords);
-        processedWordCountRef.current = allWords.length;
-      }
+        const transcript = result[0].transcript;
+        if (!transcript) {
+          lastProcessedFinalIndexRef.current = i + 1;
+          continue;
+        }
 
-      if (latestResult.isFinal) {
-        currentSegmentIndexRef.current = -1;
-        processedWordCountRef.current = 0;
+        const normalizedSpoken = normalizeArabic(transcript);
+        const words = normalizedSpoken.split(/\s+/).filter(Boolean);
+
+        if (words.length > 0) {
+          setDebugNormalizedSpoken(words.join(" "));
+          processNewWords(words);
+        }
+
+        lastProcessedFinalIndexRef.current = i + 1;
       }
     };
 
     recognition.onerror = (event: any) => {
       console.error("Speech Error:", event.error);
-      if (event.error !== "aborted") {
-        setTimeout(() => {
+      if (event.error !== "aborted" && isListeningRef.current) {
+        // Debounce restart to avoid rapid restart loops
+        if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+        restartTimerRef.current = setTimeout(() => {
           if (isListeningRef.current) startRecording();
-        }, 100);
+        }, 300);
       }
     };
 
     recognition.onend = () => {
       if (isListeningRef.current && versesRef.current.length > 0) {
-        startRecording();
+        // Debounce restart to avoid overlapping instances
+        if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+        restartTimerRef.current = setTimeout(() => {
+          if (isListeningRef.current) startRecording();
+        }, 300);
       }
     };
 
@@ -452,6 +462,7 @@ export default function Home() {
 
   const toggleListening = useCallback(() => {
     if (isListening) {
+      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
       if (recognitionRef.current) {
         recognitionRef.current.onend = null;
         recognitionRef.current.stop();
@@ -483,8 +494,8 @@ export default function Home() {
     vIdxRef.current = 0;
     wIdxRef.current = 0;
     revealedSetRef.current = new Set();
-    currentSegmentIndexRef.current = -1;
-    processedWordCountRef.current = 0;
+    lastProcessedFinalIndexRef.current = 0;
+    if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
   };
 
   const filteredSurahs = useMemo(() => {
