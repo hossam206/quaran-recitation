@@ -649,7 +649,7 @@ export default function Home() {
                   className="text-2xl md:text-3xl font-black text-emerald-900"
                   style={{ fontFamily: "var(--font-amiri), Amiri, serif" }}
                 >
-                  {selectedSurahData?.name}
+                  سورة {selectedSurahData?.name}
                 </h2>
                 <span className="text-[10px] md:text-xs text-emerald-500 mt-0.5">
                   {revealedWords.length} / {totalWords} كلمة
