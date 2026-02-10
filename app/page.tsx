@@ -12,6 +12,7 @@ interface Surah {
 interface VerseData {
   chapter: number;
   verse: number;
+
   text: string;
 }
 
