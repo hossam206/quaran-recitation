@@ -48,6 +48,7 @@ export default function Home() {
   const [debugExpectedWord, setDebugExpectedWord] = useState("");
   const [showDebug, setShowDebug] = useState(false);
   const [wrongWordFlash, setWrongWordFlash] = useState<string | null>(null);
+  const [showMistakesReview, setShowMistakesReview] = useState(false);
 
   // Refs for speech recognition processing
   const versesRef = useRef<VerseData[]>([]);
@@ -128,6 +129,7 @@ export default function Home() {
       setDebugExpectedWord("");
       setIsSidebarOpen(false);
       setWrongWordFlash(null);
+      setShowMistakesReview(false);
 
       vIdxRef.current = 0;
       wIdxRef.current = 0;
@@ -182,6 +184,36 @@ export default function Home() {
     }
     return map;
   }, [revealedWords]);
+
+  const mistakesByVerse = useMemo(() => {
+    const totalW = verses.reduce(
+      (acc, v) => acc + v.text.split(/\s+/).length,
+      0,
+    );
+    if (totalW === 0 || revealedWords.length < totalW) return [];
+    const verseErrorMap = new Map<number, WordStatus[]>();
+    for (const rw of revealedWords) {
+      if (!rw.isCorrect) {
+        const existing = verseErrorMap.get(rw.verseNumber) || [];
+        existing.push(rw);
+        verseErrorMap.set(rw.verseNumber, existing);
+      }
+    }
+    return verses
+      .filter((v) => verseErrorMap.has(v.verse))
+      .map((v) => {
+        const words = v.text.split(/\s+/);
+        const mistakes = verseErrorMap.get(v.verse) || [];
+        return {
+          verse: v,
+          words,
+          mistakeCount: mistakes.length,
+          verseAccuracy: Math.round(
+            ((words.length - mistakes.length) / words.length) * 100,
+          ),
+        };
+      });
+  }, [revealedWords, verses]);
 
   const processNewWords = useCallback(
     (spokenWords: string[]) => {
@@ -542,6 +574,7 @@ export default function Home() {
     setDebugNormalizedSpoken("");
     setDebugExpectedWord("");
     setWrongWordFlash(null);
+    setShowMistakesReview(false);
 
     vIdxRef.current = 0;
     wIdxRef.current = 0;
@@ -891,75 +924,266 @@ export default function Home() {
 
         {/* ─── Completion Overlay ─── */}
         {isComplete && (
-          <div className="absolute inset-0 z-40 bg-white/80 backdrop-blur-lg flex items-center justify-center animate-fade-in-up">
-            {/* Decorative sparkles */}
-            <div className="absolute top-[15%] right-[20%] text-amber-400 text-2xl sparkle-1">
-              ✦
-            </div>
-            <div className="absolute top-[25%] left-[15%] text-emerald-400 text-lg sparkle-2">
-              ✦
-            </div>
-            <div className="absolute bottom-[30%] right-[15%] text-emerald-300 text-xl sparkle-3">
-              ✦
-            </div>
-            <div className="absolute bottom-[20%] left-[25%] text-amber-300 text-sm sparkle-4">
-              ✦
-            </div>
+          <div className="absolute inset-0 z-40 bg-white/80 backdrop-blur-lg animate-fade-in-up">
+            {!showMistakesReview ? (
+              /* ─── Summary View ─── */
+              <div className="h-full flex items-center justify-center relative">
+                {/* Decorative sparkles */}
+                <div className="absolute top-[15%] right-[20%] text-amber-400 text-2xl sparkle-1">
+                  ✦
+                </div>
+                <div className="absolute top-[25%] left-[15%] text-emerald-400 text-lg sparkle-2">
+                  ✦
+                </div>
+                <div className="absolute bottom-[30%] right-[15%] text-emerald-300 text-xl sparkle-3">
+                  ✦
+                </div>
+                <div className="absolute bottom-[20%] left-[25%] text-amber-300 text-sm sparkle-4">
+                  ✦
+                </div>
 
-            <div className="text-center px-6 max-w-sm">
-              <div className="w-20 h-20 bg-gradient-to-br from-emerald-400 to-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl shadow-emerald-200">
-                <CheckIcon className="w-10 h-10 text-white" />
-              </div>
-              <h3 className="text-2xl font-black text-emerald-900 mb-2">
-                أحسنت!
-              </h3>
-              <p className="text-emerald-600 text-sm mb-6">
-                أتممت تلاوة {selectedSurahData?.name}
-              </p>
-
-              <div className="flex justify-center gap-4 mb-8">
-                <div className="bg-emerald-50 border border-emerald-100 rounded-2xl px-5 py-3 text-center">
-                  <div className="text-2xl font-black text-emerald-600">
-                    {accuracy}%
+                <div className="text-center px-6 max-w-sm">
+                  <div className="w-20 h-20 bg-gradient-to-br from-emerald-400 to-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl shadow-emerald-200">
+                    <CheckIcon className="w-10 h-10 text-white" />
                   </div>
-                  <div className="text-[10px] font-bold text-emerald-500 mt-0.5">
-                    الدقة
+                  <h3 className="text-2xl font-black text-emerald-900 mb-2">
+                    أحسنت!
+                  </h3>
+                  <p className="text-emerald-600 text-sm mb-6">
+                    أتممت تلاوة {selectedSurahData?.name}
+                  </p>
+
+                  <div className="flex justify-center gap-4 mb-8">
+                    <div className="bg-emerald-50 border border-emerald-100 rounded-2xl px-5 py-3 text-center">
+                      <div className="text-2xl font-black text-emerald-600">
+                        {accuracy}%
+                      </div>
+                      <div className="text-[10px] font-bold text-emerald-500 mt-0.5">
+                        الدقة
+                      </div>
+                    </div>
+                    <div
+                      className={`border rounded-2xl px-5 py-3 text-center ${errorCount > 0 ? "bg-rose-50 border-rose-100" : "bg-emerald-50 border-emerald-100"}`}
+                    >
+                      <div
+                        className={`text-2xl font-black ${errorCount > 0 ? "text-rose-500" : "text-emerald-600"}`}
+                      >
+                        {errorCount}
+                      </div>
+                      <div
+                        className={`text-[10px] font-bold mt-0.5 ${errorCount > 0 ? "text-rose-400" : "text-emerald-500"}`}
+                      >
+                        أخطاء
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-3 items-center">
+                    <div className="flex gap-3 justify-center">
+                      <button
+                        onClick={handleReset}
+                        className="px-6 py-3 bg-gradient-to-l from-emerald-500 to-emerald-600 text-white rounded-2xl font-bold text-sm shadow-lg shadow-emerald-200/50 active:scale-95 transition-transform"
+                      >
+                        إعادة التلاوة
+                      </button>
+                      <button
+                        onClick={() => {
+                          handleReset();
+                          setSelectedSurah(null);
+                        }}
+                        className="px-6 py-3 bg-white border border-emerald-200 text-emerald-700 rounded-2xl font-bold text-sm shadow-sm active:scale-95 transition-transform"
+                      >
+                        سورة أخرى
+                      </button>
+                    </div>
+                    {errorCount > 0 && (
+                      <button
+                        onClick={() => setShowMistakesReview(true)}
+                        className="px-6 py-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl font-bold text-sm shadow-sm active:scale-95 transition-transform flex items-center gap-2"
+                      >
+                        <EyeIcon className="w-4 h-4" />
+                        مراجعة الأخطاء
+                      </button>
+                    )}
                   </div>
                 </div>
-                <div
-                  className={`border rounded-2xl px-5 py-3 text-center ${errorCount > 0 ? "bg-rose-50 border-rose-100" : "bg-emerald-50 border-emerald-100"}`}
-                >
-                  <div
-                    className={`text-2xl font-black ${errorCount > 0 ? "text-rose-500" : "text-emerald-600"}`}
-                  >
-                    {errorCount}
+              </div>
+            ) : (
+              /* ─── Mistakes Review View ─── */
+              <div className="w-full h-full flex flex-col">
+                {/* Sticky Header */}
+                <div className="sticky top-0 z-10 bg-white/90 backdrop-blur-md border-b border-rose-100 px-4 md:px-8 py-4">
+                  <div className="max-w-3xl mx-auto flex items-center justify-between">
+                    <button
+                      onClick={() => setShowMistakesReview(false)}
+                      className="p-2 bg-emerald-50 text-emerald-600 rounded-xl active:scale-95 transition-transform"
+                    >
+                      <ArrowBackIcon className="w-5 h-5" />
+                    </button>
+                    <h3 className="text-lg font-black text-emerald-900">
+                      مراجعة الأخطاء
+                    </h3>
+                    <div className="flex gap-2">
+                      <span className="bg-rose-50 border border-rose-100 text-rose-600 text-xs font-bold px-3 py-1 rounded-full">
+                        {errorCount} خطأ
+                      </span>
+                      <span className="bg-amber-50 border border-amber-100 text-amber-600 text-xs font-bold px-3 py-1 rounded-full">
+                        {mistakesByVerse.length} آية
+                      </span>
+                    </div>
                   </div>
-                  <div
-                    className={`text-[10px] font-bold mt-0.5 ${errorCount > 0 ? "text-rose-400" : "text-emerald-500"}`}
-                  >
-                    أخطاء
+                </div>
+
+                {/* Stats Bar */}
+                <div className="px-4 md:px-8 py-4">
+                  <div className="max-w-3xl mx-auto">
+                    <div className="bg-white/90 border border-emerald-100 rounded-2xl p-4 flex items-center justify-around">
+                      <div className="text-center">
+                        <div className="relative w-12 h-12 mx-auto">
+                          <svg
+                            className="w-12 h-12 -rotate-90"
+                            viewBox="0 0 36 36"
+                          >
+                            <circle
+                              cx="18"
+                              cy="18"
+                              r="14"
+                              fill="none"
+                              stroke="#d1fae5"
+                              strokeWidth="3"
+                            />
+                            <circle
+                              cx="18"
+                              cy="18"
+                              r="14"
+                              fill="none"
+                              stroke="#10b981"
+                              strokeWidth="3"
+                              strokeDasharray={`${accuracy * 0.88} 88`}
+                              strokeLinecap="round"
+                              className="transition-all duration-500"
+                            />
+                          </svg>
+                          <span className="absolute inset-0 flex items-center justify-center text-xs font-black text-emerald-700">
+                            {accuracy}%
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-bold text-emerald-500 mt-1 block">
+                          الدقة
+                        </span>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-xl font-black text-emerald-600">
+                          {totalWords}
+                        </div>
+                        <span className="text-[10px] font-bold text-emerald-500">
+                          كلمة
+                        </span>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-xl font-black text-emerald-600">
+                          {revealedWords.filter((w) => w.isCorrect).length}
+                        </div>
+                        <span className="text-[10px] font-bold text-emerald-500">
+                          صحيحة
+                        </span>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-xl font-black text-rose-500">
+                          {errorCount}
+                        </div>
+                        <span className="text-[10px] font-bold text-rose-400">
+                          أخطاء
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Verse Cards */}
+                <div className="flex-1 overflow-y-auto px-4 md:px-8 pb-8">
+                  <div className="max-w-3xl mx-auto space-y-6">
+                    {mistakesByVerse.map((item, idx) => (
+                      <div
+                        key={item.verse.verse}
+                        className="bg-white/90 backdrop-blur-sm border border-white rounded-2xl shadow-lg shadow-emerald-100/10 overflow-hidden animate-fade-in-up"
+                        style={{ animationDelay: `${Math.min(idx * 0.1, 1)}s` }}
+                      >
+                        {/* Verse header */}
+                        <div className="flex items-center justify-between px-5 py-3 bg-gradient-to-l from-emerald-50 to-transparent border-b border-emerald-50">
+                          <div className="flex items-center gap-2">
+                            <span className="w-8 h-8 bg-emerald-100 text-emerald-700 rounded-lg flex items-center justify-center text-xs font-black">
+                              {item.verse.verse}
+                            </span>
+                            <span className="text-xs font-bold text-emerald-600">
+                              الآية {item.verse.verse}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="bg-rose-50 text-rose-500 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                              {item.mistakeCount}{" "}
+                              {item.mistakeCount === 1 ? "خطأ" : "أخطاء"}
+                            </span>
+                            <span className="text-[10px] font-bold text-emerald-400">
+                              {item.verseAccuracy}% صحيح
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Verse text with highlighted mistakes */}
+                        <div
+                          className="p-5 md:p-6 text-xl md:text-2xl leading-[3rem] md:leading-[4rem] text-center"
+                          style={{
+                            fontFamily: "var(--font-amiri), Amiri, serif",
+                          }}
+                        >
+                          {item.words.map((word, wIdx) => {
+                            const status = revealedMap.get(
+                              `${item.verse.verse}-${wIdx}`,
+                            );
+                            const isWrong = status && !status.isCorrect;
+                            return (
+                              <span
+                                key={wIdx}
+                                className={`inline-block mx-0.5 md:mx-1 transition-all ${
+                                  isWrong
+                                    ? "text-rose-600 font-bold bg-rose-50 rounded-lg px-1.5 py-0.5 underline decoration-rose-300 decoration-2 underline-offset-4 animate-mistake-pulse"
+                                    : "text-emerald-900"
+                                }`}
+                              >
+                                {word}
+                              </span>
+                            );
+                          })}
+                          <span className="inline-flex items-center text-base md:text-lg text-amber-500/40 font-serif mx-2 select-none">
+                            ﴿{item.verse.verse}﴾
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Bottom actions */}
+                    <div className="flex gap-3 justify-center pt-4 pb-8">
+                      <button
+                        onClick={handleReset}
+                        className="px-6 py-3 bg-gradient-to-l from-emerald-500 to-emerald-600 text-white rounded-2xl font-bold text-sm shadow-lg shadow-emerald-200/50 active:scale-95 transition-transform"
+                      >
+                        إعادة التلاوة
+                      </button>
+                      <button
+                        onClick={() => {
+                          handleReset();
+                          setSelectedSurah(null);
+                        }}
+                        className="px-6 py-3 bg-white border border-emerald-200 text-emerald-700 rounded-2xl font-bold text-sm shadow-sm active:scale-95 transition-transform"
+                      >
+                        سورة أخرى
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-
-              <div className="flex gap-3 justify-center">
-                <button
-                  onClick={handleReset}
-                  className="px-6 py-3 bg-gradient-to-l from-emerald-500 to-emerald-600 text-white rounded-2xl font-bold text-sm shadow-lg shadow-emerald-200/50 active:scale-95 transition-transform "
-                >
-                  إعادة التلاوة
-                </button>
-                <button
-                  onClick={() => {
-                    handleReset();
-                    setSelectedSurah(null);
-                  }}
-                  className="px-6 py-3 bg-white border border-emerald-200 text-emerald-700 rounded-2xl font-bold text-sm shadow-sm active:scale-95 transition-transform"
-                >
-                  سورة أخرى
-                </button>
-              </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -983,12 +1207,12 @@ export default function Home() {
 
         {/* ─── Control Panel (centered) ─── */}
         {selectedSurah && !loadingVerses && !isComplete && (
-          <div className="fixed inset-0 z-30 pointer-events-none flex items-center justify-center">
-            <div className="pointer-events-auto flex flex-col items-center">
+          <div className="fixed bottom-0 left-1/2 right-1/2 z-30 pb-4 md:pb-6 pt-4 pointer-events-none flex flex-col justify-center items-center">
+            <div className="pointer-events-auto">
               {/* Debug panel (toggleable) */}
               {showDebug && debugSpokenText && (
-                <div className="mb-3 animate-slide-up">
-                  <div className="bg-gray-900/90 backdrop-blur-md text-gray-200 px-5 py-3 rounded-xl text-xs shadow-2xl border border-gray-700/50 space-y-1 font-mono min-w-[20rem]">
+                <div className="mb-2 animate-slide-up">
+                  <div className="bg-gray-900/90 backdrop-blur-md text-gray-200 px-4 py-2 rounded-xl text-xs shadow-2xl border border-gray-700/50 space-y-1 font-mono">
                     <div className="flex gap-2">
                       <span className="text-gray-500">raw:</span>
                       <span className="truncate">{debugSpokenText}</span>
@@ -1205,6 +1429,47 @@ function RefreshIcon({ className }: { className?: string }) {
         strokeLinecap="round"
         strokeLinejoin="round"
         d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"
+      />
+    </svg>
+  );
+}
+function EyeIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth={2}
+      stroke="currentColor"
+      className={className}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"
+      />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+      />
+    </svg>
+  );
+}
+function ArrowBackIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth={2.5}
+      stroke="currentColor"
+      className={className}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3"
       />
     </svg>
   );
