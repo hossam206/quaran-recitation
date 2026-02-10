@@ -337,7 +337,7 @@ export default function Home() {
 
             if (spokenIdx === 0) {
               setDebugExpectedWord(
-                `\u2713 \u0642\u0641\u0632 ${foundPosition} \u2190 "${spokenWord}"`
+                `\u2713 \u0642\u0641\u0632 ${foundPosition} \u2190 "${spokenWord}"`,
               );
             }
 
@@ -366,7 +366,7 @@ export default function Home() {
               (prev) =>
                 prev +
                 skippedReveals.length +
-                matchReveals.filter((r) => !r.isCorrect).length
+                matchReveals.filter((r) => !r.isCorrect).length,
             );
             setCurrentVerseIndex(matchV);
             setCurrentWordIndex(matchW);
@@ -374,7 +374,7 @@ export default function Home() {
         }
       }
     },
-    [playErrorSound]
+    [playErrorSound],
   );
 
   const startRecording = useCallback(() => {
@@ -383,7 +383,7 @@ export default function Home() {
       (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       alert(
-        "\u0627\u0644\u0645\u062A\u0635\u0641\u062D \u0644\u0627 \u064A\u062F\u0639\u0645 \u0627\u0644\u062A\u0639\u0631\u0641 \u0639\u0644\u0649 \u0627\u0644\u0643\u0644\u0627\u0645. \u0627\u0633\u062A\u062E\u062F\u0645 Chrome."
+        "\u0627\u0644\u0645\u062A\u0635\u0641\u062D \u0644\u0627 \u064A\u062F\u0639\u0645 \u0627\u0644\u062A\u0639\u0631\u0641 \u0639\u0644\u0649 \u0627\u0644\u0643\u0644\u0627\u0645. \u0627\u0633\u062A\u062E\u062F\u0645 Chrome.",
       );
       return;
     }
@@ -490,7 +490,7 @@ export default function Home() {
     return surahs.filter(
       (s) =>
         s.name.includes(searchTerm) ||
-        s.englishName?.toLowerCase().includes(searchTerm.toLowerCase())
+        s.englishName?.toLowerCase().includes(searchTerm.toLowerCase()),
     );
   }, [surahs, searchTerm]);
 
@@ -505,7 +505,7 @@ export default function Home() {
       ? Math.round(
           (revealedWords.filter((w) => w.isCorrect).length /
             revealedWords.length) *
-            100
+            100,
         )
       : 0;
 
@@ -776,7 +776,7 @@ export default function Home() {
                         <span key={verse.verse} className="inline">
                           {words.map((word, wIdx) => {
                             const revealed = revealedMap.get(
-                              `${verse.verse}-${wIdx}`
+                              `${verse.verse}-${wIdx}`,
                             );
                             const isCurrent =
                               vIdx === currentVerseIndex &&
