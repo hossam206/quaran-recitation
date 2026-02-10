@@ -1106,8 +1106,8 @@ export default function Home() {
                     {mistakesByVerse.map((item, idx) => (
                       <div
                         key={item.verse.verse}
-                        className="bg-white/90 backdrop-blur-sm border border-white rounded-2xl shadow-lg shadow-emerald-100/10 overflow-hidden animate-fade-in-up"
-                        style={{ animationDelay: `${Math.min(idx * 0.1, 1)}s` }}
+                        className="bg-white/90 backdrop-blur-sm border border-white rounded-2xl shadow-lg shadow-emerald-100/10 overflow-hidden animate-fade-in-up-fast"
+                        style={{ animationDelay: `${Math.min(idx * 0.03, 0.3)}s` }}
                       >
                         {/* Verse header */}
                         <div className="flex items-center justify-between px-5 py-3 bg-gradient-to-l from-emerald-50 to-transparent border-b border-emerald-50">
