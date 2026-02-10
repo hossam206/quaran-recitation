@@ -66,6 +66,7 @@ export default function Home() {
   // Auto-scroll ref
   const currentWordRef = useRef<HTMLSpanElement>(null);
   const wrongWordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const consecutiveMissRef = useRef(0);
 
   const playErrorSound = useCallback(() => {
     const now = Date.now();
@@ -132,6 +133,7 @@ export default function Home() {
       wIdxRef.current = 0;
       revealedSetRef.current = new Set();
       lastProcessedFinalIndexRef.current = 0;
+      consecutiveMissRef.current = 0;
       if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
       if (wrongWordTimerRef.current) clearTimeout(wrongWordTimerRef.current);
 
@@ -251,6 +253,7 @@ export default function Home() {
         }
 
         if (newReveals.length > 0) {
+          consecutiveMissRef.current = 0;
           vIdxRef.current = vIdx;
           wIdxRef.current = wIdx;
           setRevealedWords((prev) => [...prev, ...newReveals]);
@@ -364,6 +367,7 @@ export default function Home() {
 
           const allReveals = [...skippedReveals, ...matchReveals];
           if (allReveals.length > 0) {
+            consecutiveMissRef.current = 0;
             vIdxRef.current = matchV;
             wIdxRef.current = matchW;
             setRevealedWords((prev) => [...prev, ...allReveals]);
@@ -378,14 +382,47 @@ export default function Home() {
           }
         } else {
           // No match found — show what the user said as a wrong word flash
+          consecutiveMissRef.current++;
           setWrongWordFlash(spokenWords.join(" "));
           playErrorSound();
           if (wrongWordTimerRef.current)
             clearTimeout(wrongWordTimerRef.current);
-          wrongWordTimerRef.current = setTimeout(
-            () => setWrongWordFlash(null),
-            2000,
-          );
+
+          if (consecutiveMissRef.current >= 3) {
+            // After 3 wrong attempts, reveal the expected word as incorrect and advance
+            consecutiveMissRef.current = 0;
+            const key = `${currentVerse.verse}-${wIdx}`;
+            if (!revealedSetRef.current.has(key)) {
+              revealedSetRef.current.add(key);
+              const reveal: WordStatus = {
+                verseNumber: currentVerse.verse,
+                wordIndex: wIdx,
+                word: currentVerse.originalWords[wIdx],
+                isCorrect: false,
+              };
+              let newVIdx = vIdx;
+              let newWIdx = wIdx + 1;
+              if (newWIdx >= currentVerse.normalizedWords.length) {
+                newVIdx++;
+                newWIdx = 0;
+              }
+              vIdxRef.current = newVIdx;
+              wIdxRef.current = newWIdx;
+              setRevealedWords((prev) => [...prev, reveal]);
+              setErrorCount((prev) => prev + 1);
+              setCurrentVerseIndex(newVIdx);
+              setCurrentWordIndex(newWIdx);
+            }
+            wrongWordTimerRef.current = setTimeout(
+              () => setWrongWordFlash(null),
+              2000,
+            );
+          } else {
+            wrongWordTimerRef.current = setTimeout(
+              () => setWrongWordFlash(null),
+              2000,
+            );
+          }
         }
       }
     },
@@ -510,6 +547,7 @@ export default function Home() {
     wIdxRef.current = 0;
     revealedSetRef.current = new Set();
     lastProcessedFinalIndexRef.current = 0;
+    consecutiveMissRef.current = 0;
     if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
     if (wrongWordTimerRef.current) clearTimeout(wrongWordTimerRef.current);
   };
@@ -594,7 +632,7 @@ export default function Home() {
               placeholder="ابحث عن سورة..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-emerald-50/50 border border-emerald-100 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-200 transition-all"
+              className="w-full bg-emerald-50/50 border border-emerald-100 rounded-xl p-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-200 transition-all"
             />
             <SearchIcon className="absolute left-3 top-3 w-4 h-4 text-emerald-300" />
           </div>
@@ -643,7 +681,7 @@ export default function Home() {
         {/* ─── Nav Bar with Stats ─── */}
         {selectedSurah && (
           <div className="relative z-10">
-            <nav className="px-4 md:px-8 py-4 md:py-5 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <nav className="px-4 md:px-8 py-4 md:py-5 flex flex-col sm:flex-row items-center justify-between gap-3 mt-4">
               <div className="flex flex-col items-center sm:items-start">
                 <h2
                   className="text-2xl md:text-3xl font-black text-emerald-900"
@@ -943,14 +981,14 @@ export default function Home() {
           </div>
         )}
 
-        {/* ─── Bottom Control Panel ─── */}
+        {/* ─── Control Panel (centered) ─── */}
         {selectedSurah && !loadingVerses && !isComplete && (
-          <div className="fixed bottom-0 left-1/2 right-1/2 z-30 pb-4 md:pb-6 pt-4 pointer-events-none flex flex-col justify-center items-center">
-            <div className="pointer-events-auto">
+          <div className="fixed inset-0 z-30 pointer-events-none flex items-center justify-center">
+            <div className="pointer-events-auto flex flex-col items-center">
               {/* Debug panel (toggleable) */}
               {showDebug && debugSpokenText && (
-                <div className="mb-2 animate-slide-up">
-                  <div className="bg-gray-900/90 backdrop-blur-md text-gray-200 px-4 py-2 rounded-xl text-xs shadow-2xl border border-gray-700/50 space-y-1 font-mono">
+                <div className="mb-3 animate-slide-up">
+                  <div className="bg-gray-900/90 backdrop-blur-md text-gray-200 px-5 py-3 rounded-xl text-xs shadow-2xl border border-gray-700/50 space-y-1 font-mono min-w-[20rem]">
                     <div className="flex gap-2">
                       <span className="text-gray-500">raw:</span>
                       <span className="truncate">{debugSpokenText}</span>
@@ -967,18 +1005,18 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Main control bar — compact centered pill */}
-              <div className="bg-white/90 backdrop-blur-2xl border border-white/80 rounded-full shadow-2xl shadow-emerald-100/30 px-4 md:px-6 py-2 md:py-3 pointer-events-auto flex items-center justify-center gap-10 md:gap-5">
+              {/* Main control bar */}
+              <div className="bg-white/90 backdrop-blur-2xl border border-white/80 rounded-full shadow-2xl shadow-emerald-100/30 px-8 md:px-14 py-3 md:py-4 flex items-center justify-center gap-12 md:gap-10">
                 {/* Reset */}
                 <button
                   onClick={handleReset}
-                  className="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center hover:bg-emerald-100 active:scale-95 transition-all"
+                  className="w-12 h-12 md:w-14 md:h-14 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center hover:bg-emerald-100 active:scale-95 transition-all"
                 >
-                  <RefreshIcon className="w-5 h-5" />
+                  <RefreshIcon className="w-6 h-6" />
                 </button>
 
                 {/* Mic + Status */}
-                <div className="flex flex-col  items-center gap-1">
+                <div className="flex flex-col items-center gap-1">
                   {/* Listening indicator */}
                   <div className="flex items-center gap-2 h-5">
                     {isListening ? (
@@ -1009,16 +1047,16 @@ export default function Home() {
                     )}
                     <button
                       onClick={toggleListening}
-                      className={`relative z-10 w-14 h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center transition-all active:scale-90 shadow-lg ${
+                      className={`relative z-10 w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center transition-all active:scale-90 shadow-lg ${
                         isListening
                           ? "bg-gradient-to-br from-rose-400 to-rose-600 shadow-rose-200/50"
                           : "bg-gradient-to-br from-emerald-500 to-emerald-700 shadow-emerald-200/50"
                       }`}
                     >
                       {isListening ? (
-                        <StopIcon className="w-5 h-5 text-white" />
+                        <StopIcon className="w-6 h-6 text-white" />
                       ) : (
-                        <MicIcon className="w-7 h-7 text-white" />
+                        <MicIcon className="w-8 h-8 text-white" />
                       )}
                     </button>
                   </div>
@@ -1027,9 +1065,9 @@ export default function Home() {
                 {/* Debug toggle */}
                 <button
                   onClick={() => setShowDebug((v) => !v)}
-                  className={`w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center active:scale-95 transition-all ${showDebug ? "bg-gray-100 text-gray-600" : "bg-emerald-50 text-emerald-400"}`}
+                  className={`w-12 h-12 md:w-14 md:h-14 rounded-xl flex items-center justify-center active:scale-95 transition-all ${showDebug ? "bg-gray-100 text-gray-600" : "bg-emerald-50 text-emerald-400"}`}
                 >
-                  <BugIcon className="w-4 h-4" />
+                  <BugIcon className="w-5 h-5" />
                 </button>
               </div>
             </div>
