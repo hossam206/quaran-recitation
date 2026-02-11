@@ -643,7 +643,10 @@ export default function Home() {
   const isComplete = totalWords > 0 && revealedWords.length >= totalWords;
 
   return (
-    <div className="h-screen flex flex-col md:flex-row bg-[#FDFBF7] islamic-pattern-bg" dir="rtl">
+    <div
+      className="h-screen flex flex-col md:flex-row bg-[#FDFBF7] islamic-pattern-bg"
+      dir="rtl"
+    >
       {/* ─── Mobile Header ─── */}
       <div className="md:hidden bg-white/80 backdrop-blur-md border-b border-emerald-100 p-4 flex items-center justify-between z-40 sticky top-0">
         <button
@@ -655,8 +658,18 @@ export default function Home() {
         <div className="flex items-center gap-2">
           <h1 className="text-lg font-bold text-emerald-900">مُرَتِّل</h1>
           <div className="w-7 h-7 bg-gradient-to-br from-emerald-500 to-emerald-700 rounded-lg flex items-center justify-center">
-            <svg viewBox="0 0 24 24" className="w-4 h-4 text-white" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" strokeLinecap="round" strokeLinejoin="round"/>
+            <svg
+              viewBox="0 0 24 24"
+              className="w-4 h-4 text-white"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+            >
+              <path
+                d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
           </div>
         </div>
@@ -674,8 +687,18 @@ export default function Home() {
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
               <div className="w-11 h-11 bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-200/60 ring-2 ring-emerald-400/20">
-                <svg viewBox="0 0 24 24" className="w-6 h-6 text-white" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" strokeLinecap="round" strokeLinejoin="round"/>
+                <svg
+                  viewBox="0 0 24 24"
+                  className="w-6 h-6 text-white"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                >
+                  <path
+                    d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
               </div>
               <div>
@@ -710,7 +733,10 @@ export default function Home() {
           <div className="flex items-center gap-3 mt-4 px-2">
             <div className="flex-1 h-px bg-gradient-to-l from-emerald-200/60 to-transparent" />
             <svg viewBox="0 0 40 40" className="w-4 h-4 text-emerald-300/50">
-              <polygon points="20,2 33,8 38,20 33,32 20,38 7,32 2,20 7,8" fill="currentColor"/>
+              <polygon
+                points="20,2 33,8 38,20 33,32 20,38 7,32 2,20 7,8"
+                fill="currentColor"
+              />
             </svg>
             <div className="flex-1 h-px bg-gradient-to-r from-emerald-200/60 to-transparent" />
           </div>
@@ -741,8 +767,12 @@ export default function Home() {
                 </span>
               </div>
               <span className="relative w-9 h-9 flex items-center justify-center">
-                <span className={`absolute inset-0 rounded-md rotate-45 transition-colors ${selectedSurah === surah.number ? "bg-white/20" : "bg-emerald-50 group-hover:bg-emerald-100"}`} />
-                <span className={`relative text-[10px] font-black ${selectedSurah === surah.number ? "text-white" : "text-emerald-600"}`}>
+                <span
+                  className={`absolute inset-0 rounded-md rotate-45 transition-colors ${selectedSurah === surah.number ? "bg-white/20" : "bg-emerald-50 group-hover:bg-emerald-100"}`}
+                />
+                <span
+                  className={`relative text-[10px] font-black ${selectedSurah === surah.number ? "text-white" : "text-emerald-600"}`}
+                >
                   {surah.number}
                 </span>
               </span>
@@ -763,15 +793,27 @@ export default function Home() {
         {/* Background blobs — layered gradients with drift */}
         <div
           className="absolute top-0 right-0 w-[28rem] h-[28rem] rounded-full blur-3xl opacity-40 -mr-48 -mt-48 pointer-events-none"
-          style={{ background: 'radial-gradient(circle, rgba(16,185,129,0.3) 0%, rgba(5,150,105,0.1) 50%, transparent 70%)', animation: 'blobDrift1 20s ease-in-out infinite' }}
+          style={{
+            background:
+              "radial-gradient(circle, rgba(16,185,129,0.3) 0%, rgba(5,150,105,0.1) 50%, transparent 70%)",
+            animation: "blobDrift1 20s ease-in-out infinite",
+          }}
         />
         <div
           className="absolute bottom-0 left-0 w-[28rem] h-[28rem] rounded-full blur-3xl opacity-40 -ml-48 -mb-48 pointer-events-none"
-          style={{ background: 'radial-gradient(circle, rgba(251,191,36,0.25) 0%, rgba(245,158,11,0.1) 50%, transparent 70%)', animation: 'blobDrift2 25s ease-in-out infinite' }}
+          style={{
+            background:
+              "radial-gradient(circle, rgba(251,191,36,0.25) 0%, rgba(245,158,11,0.1) 50%, transparent 70%)",
+            animation: "blobDrift2 25s ease-in-out infinite",
+          }}
         />
         <div
           className="absolute top-1/2 left-1/3 w-[20rem] h-[20rem] rounded-full blur-3xl opacity-20 pointer-events-none"
-          style={{ background: 'radial-gradient(circle, rgba(244,63,94,0.15) 0%, transparent 70%)', animation: 'blobDrift3 30s ease-in-out infinite' }}
+          style={{
+            background:
+              "radial-gradient(circle, rgba(244,63,94,0.15) 0%, transparent 70%)",
+            animation: "blobDrift3 30s ease-in-out infinite",
+          }}
         />
 
         {/* ─── Nav Bar with Stats ─── */}
@@ -801,10 +843,33 @@ export default function Home() {
                 <div className="bg-white/80 backdrop-blur border border-emerald-100 px-3 md:px-4 py-2 rounded-2xl flex items-center gap-2 shadow-sm ring-1 ring-emerald-50">
                   <div className="relative w-10 h-10">
                     <svg className="w-10 h-10 -rotate-90" viewBox="0 0 36 36">
-                      <circle cx="18" cy="18" r="14" fill="none" stroke="#d1fae5" strokeWidth="2.5" />
-                      <circle cx="18" cy="18" r="14" fill="none" stroke="url(#accuracyGrad)" strokeWidth="2.5" strokeDasharray={`${accuracy * 0.88} 88`} strokeLinecap="round" className="transition-all duration-500" />
+                      <circle
+                        cx="18"
+                        cy="18"
+                        r="14"
+                        fill="none"
+                        stroke="#d1fae5"
+                        strokeWidth="2.5"
+                      />
+                      <circle
+                        cx="18"
+                        cy="18"
+                        r="14"
+                        fill="none"
+                        stroke="url(#accuracyGrad)"
+                        strokeWidth="2.5"
+                        strokeDasharray={`${accuracy * 0.88} 88`}
+                        strokeLinecap="round"
+                        className="transition-all duration-500"
+                      />
                       <defs>
-                        <linearGradient id="accuracyGrad" x1="0" y1="0" x2="1" y2="1">
+                        <linearGradient
+                          id="accuracyGrad"
+                          x1="0"
+                          y1="0"
+                          x2="1"
+                          y2="1"
+                        >
                           <stop offset="0%" stopColor="#10b981" />
                           <stop offset="100%" stopColor="#059669" />
                         </linearGradient>
@@ -815,8 +880,12 @@ export default function Home() {
                     </span>
                   </div>
                   <div className="hidden md:flex flex-col">
-                    <span className="text-[13px] font-semibold text-emerald-600">الدقة</span>
-                    <span className="text-[9px] text-emerald-400">accuracy</span>
+                    <span className="text-[13px] font-semibold text-emerald-600">
+                      الدقة
+                    </span>
+                    <span className="text-[9px] text-emerald-400">
+                      accuracy
+                    </span>
                   </div>
                 </div>
 
@@ -829,7 +898,9 @@ export default function Home() {
                   >
                     {errorCount}
                   </span>
-                  <div className={`hidden md:flex flex-col ${errorCount > 0 ? "text-rose-400" : "text-emerald-400"}`}>
+                  <div
+                    className={`hidden md:flex flex-col ${errorCount > 0 ? "text-rose-400" : "text-emerald-400"}`}
+                  >
                     <span className="text-[13px] font-bold">أخطاء</span>
                     <span className="text-[9px]">errors</span>
                   </div>
@@ -869,8 +940,18 @@ export default function Home() {
                 <div className="relative w-32 h-32 mb-8">
                   <div className="absolute inset-0 bg-gradient-to-br from-emerald-200/40 to-amber-100/40 rounded-full animate-breathe" />
                   <div className="absolute inset-2 bg-gradient-to-br from-emerald-50 to-white rounded-full shadow-xl shadow-emerald-100/60 flex items-center justify-center">
-                    <svg viewBox="0 0 24 24" className="w-14 h-14 text-emerald-600/80" fill="none" stroke="currentColor" strokeWidth="1">
-                      <path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" strokeLinecap="round" strokeLinejoin="round"/>
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="w-14 h-14 text-emerald-600/80"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1"
+                    >
+                      <path
+                        d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
                     </svg>
                   </div>
                 </div>
@@ -879,14 +960,20 @@ export default function Home() {
                   مرحباً بك في مُرَتِّل
                 </h3>
                 <p className="text-emerald-600 max-w-xs text-sm mb-4 leading-relaxed">
-                  اختبر حفظك وحسّن تلاوتك بتقنية التعرف على الصوت
+                  اختبر حفظك وحسّن تلاوتك بمساعدة الذكاءالإصطناعي
                 </p>
 
                 {/* Decorative divider */}
                 <div className="flex items-center gap-3 mb-10 max-w-xs">
                   <div className="flex-1 h-px bg-gradient-to-l from-emerald-200/50 to-transparent" />
-                  <svg viewBox="0 0 40 40" className="w-4 h-4 text-emerald-300/40">
-                    <polygon points="20,2 33,8 38,20 33,32 20,38 7,32 2,20 7,8" fill="currentColor"/>
+                  <svg
+                    viewBox="0 0 40 40"
+                    className="w-4 h-4 text-emerald-300/40"
+                  >
+                    <polygon
+                      points="20,2 33,8 38,20 33,32 20,38 7,32 2,20 7,8"
+                      fill="currentColor"
+                    />
                   </svg>
                   <div className="flex-1 h-px bg-gradient-to-r from-emerald-200/50 to-transparent" />
                 </div>
@@ -897,8 +984,18 @@ export default function Home() {
                   {[
                     {
                       icon: (
-                        <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.5">
-                          <path d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" strokeLinecap="round" strokeLinejoin="round"/>
+                        <svg
+                          viewBox="0 0 24 24"
+                          className="w-6 h-6"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                        >
+                          <path
+                            d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
                         </svg>
                       ),
                       title: "اختر سورة",
@@ -906,9 +1003,13 @@ export default function Home() {
                     },
                     {
                       icon: (
-                        <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor">
-                          <path d="M8.25 4.5a3.75 3.75 0 117.5 0v8.25a3.75 3.75 0 11-7.5 0V4.5z"/>
-                          <path d="M6 10.5a.75.75 0 01.75.75 5.25 5.25 0 1010.5 0 .75.75 0 011.5 0 6.75 6.75 0 01-6 6.709V21a.75.75 0 01-1.5 0v-3.041a6.75 6.75 0 01-6-6.709.75.75 0 01.75-.75z"/>
+                        <svg
+                          viewBox="0 0 24 24"
+                          className="w-6 h-6"
+                          fill="currentColor"
+                        >
+                          <path d="M8.25 4.5a3.75 3.75 0 117.5 0v8.25a3.75 3.75 0 11-7.5 0V4.5z" />
+                          <path d="M6 10.5a.75.75 0 01.75.75 5.25 5.25 0 1010.5 0 .75.75 0 011.5 0 6.75 6.75 0 01-6 6.709V21a.75.75 0 01-1.5 0v-3.041a6.75 6.75 0 01-6-6.709.75.75 0 01.75-.75z" />
                         </svg>
                       ),
                       title: "ابدأ التلاوة",
@@ -916,20 +1017,37 @@ export default function Home() {
                     },
                     {
                       icon: (
-                        <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.5">
-                          <path d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeLinecap="round" strokeLinejoin="round"/>
+                        <svg
+                          viewBox="0 0 24 24"
+                          className="w-6 h-6"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                        >
+                          <path
+                            d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
                         </svg>
                       ),
                       title: "راجع أدائك",
                       desc: "دقة وأخطاء",
                     },
                   ].map((step, i) => (
-                    <div key={i} className="relative z-10 flex flex-col items-center gap-2.5 w-24 md:w-32">
+                    <div
+                      key={i}
+                      className="relative z-10 flex flex-col items-center gap-2.5 w-24 md:w-32"
+                    >
                       <div className="w-14 h-14 bg-gradient-to-br from-white to-emerald-50 rounded-2xl shadow-lg shadow-emerald-100/40 flex items-center justify-center text-emerald-600 border border-emerald-100/50 ring-1 ring-white">
                         {step.icon}
                       </div>
-                      <span className="text-xs font-bold text-emerald-800">{step.title}</span>
-                      <span className="text-[10px] text-emerald-500 leading-tight">{step.desc}</span>
+                      <span className="text-xs font-bold text-emerald-800">
+                        {step.title}
+                      </span>
+                      <span className="text-[10px] text-emerald-500 leading-tight">
+                        {step.desc}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -948,8 +1066,14 @@ export default function Home() {
                   <div className="text-center py-6 md:py-8">
                     <div className="flex items-center gap-4 max-w-xs mx-auto mb-5">
                       <div className="flex-1 h-px bg-gradient-to-l from-emerald-300/40 to-transparent" />
-                      <svg viewBox="0 0 40 40" className="w-5 h-5 text-emerald-400/40">
-                        <polygon points="20,2 33,8 38,20 33,32 20,38 7,32 2,20 7,8" fill="currentColor"/>
+                      <svg
+                        viewBox="0 0 40 40"
+                        className="w-5 h-5 text-emerald-400/40"
+                      >
+                        <polygon
+                          points="20,2 33,8 38,20 33,32 20,38 7,32 2,20 7,8"
+                          fill="currentColor"
+                        />
                       </svg>
                       <div className="flex-1 h-px bg-gradient-to-r from-emerald-300/40 to-transparent" />
                     </div>
@@ -961,8 +1085,14 @@ export default function Home() {
                     </p>
                     <div className="flex items-center gap-4 max-w-xs mx-auto mt-5">
                       <div className="flex-1 h-px bg-gradient-to-l from-emerald-300/40 to-transparent" />
-                      <svg viewBox="0 0 40 40" className="w-5 h-5 text-emerald-400/40">
-                        <polygon points="20,2 33,8 38,20 33,32 20,38 7,32 2,20 7,8" fill="currentColor"/>
+                      <svg
+                        viewBox="0 0 40 40"
+                        className="w-5 h-5 text-emerald-400/40"
+                      >
+                        <polygon
+                          points="20,2 33,8 38,20 33,32 20,38 7,32 2,20 7,8"
+                          fill="currentColor"
+                        />
                       </svg>
                       <div className="flex-1 h-px bg-gradient-to-r from-emerald-300/40 to-transparent" />
                     </div>
@@ -1024,9 +1154,28 @@ export default function Home() {
                           })}
                           {/* Octagonal verse number medallion */}
                           <span className="inline-flex items-center mx-1 md:mx-3 select-none align-middle">
-                            <svg viewBox="0 0 40 40" className="w-8 h-8 md:w-10 md:h-10">
-                              <polygon points="20,2 33,8 38,20 33,32 20,38 7,32 2,20 7,8" fill="none" stroke="rgba(245,158,11,0.25)" strokeWidth="1.5"/>
-                              <text x="20" y="22" textAnchor="middle" dominantBaseline="middle" fill="rgba(245,158,11,0.6)" fontSize="12" fontFamily="var(--font-amiri), Amiri, serif" fontWeight="700">{verse.verse}</text>
+                            <svg
+                              viewBox="0 0 40 40"
+                              className="w-8 h-8 md:w-10 md:h-10"
+                            >
+                              <polygon
+                                points="20,2 33,8 38,20 33,32 20,38 7,32 2,20 7,8"
+                                fill="none"
+                                stroke="rgba(245,158,11,0.25)"
+                                strokeWidth="1.5"
+                              />
+                              <text
+                                x="20"
+                                y="22"
+                                textAnchor="middle"
+                                dominantBaseline="middle"
+                                fill="rgba(245,158,11,0.6)"
+                                fontSize="12"
+                                fontFamily="var(--font-amiri), Amiri, serif"
+                                fontWeight="700"
+                              >
+                                {verse.verse}
+                              </text>
                             </svg>
                           </span>
                         </span>
@@ -1041,20 +1190,41 @@ export default function Home() {
 
         {/* ─── Completion Overlay ─── */}
         {isComplete && (
-          <div className="absolute inset-0 z-40 backdrop-blur-lg animate-fade-in-up" style={{ background: 'radial-gradient(ellipse at center, rgba(255,255,255,0.95) 0%, rgba(236,253,245,0.85) 50%, rgba(255,255,255,0.9) 100%)' }}>
+          <div
+            className="absolute inset-0 z-40 backdrop-blur-lg animate-fade-in-up"
+            style={{
+              background:
+                "radial-gradient(ellipse at center, rgba(255,255,255,0.95) 0%, rgba(236,253,245,0.85) 50%, rgba(255,255,255,0.9) 100%)",
+            }}
+          >
             {!showMistakesReview ? (
               /* ─── Summary View ─── */
               <div className="h-full flex items-center justify-center relative overflow-hidden">
                 {/* Floating geometric shapes */}
                 <div className="absolute top-[12%] right-[18%] w-6 h-6 border-2 border-amber-300/30 rounded-sm rotate-45 animate-float-slow" />
                 <div className="absolute top-[22%] left-[12%] w-4 h-4 bg-emerald-300/20 rounded-full animate-float-medium" />
-                <div className="absolute bottom-[28%] right-[12%] animate-float-slow" style={{ animationDelay: '1s' }}>
-                  <svg viewBox="0 0 40 40" className="w-8 h-8 text-emerald-300/20">
-                    <polygon points="20,2 33,8 38,20 33,32 20,38 7,32 2,20 7,8" fill="currentColor"/>
+                <div
+                  className="absolute bottom-[28%] right-[12%] animate-float-slow"
+                  style={{ animationDelay: "1s" }}
+                >
+                  <svg
+                    viewBox="0 0 40 40"
+                    className="w-8 h-8 text-emerald-300/20"
+                  >
+                    <polygon
+                      points="20,2 33,8 38,20 33,32 20,38 7,32 2,20 7,8"
+                      fill="currentColor"
+                    />
                   </svg>
                 </div>
-                <div className="absolute bottom-[18%] left-[22%] w-3 h-3 bg-amber-300/20 rounded-full animate-float-medium" style={{ animationDelay: '0.5s' }} />
-                <div className="absolute top-[40%] right-[8%] w-5 h-5 border border-emerald-200/30 rounded-full animate-float-slow" style={{ animationDelay: '2s' }} />
+                <div
+                  className="absolute bottom-[18%] left-[22%] w-3 h-3 bg-amber-300/20 rounded-full animate-float-medium"
+                  style={{ animationDelay: "0.5s" }}
+                />
+                <div
+                  className="absolute top-[40%] right-[8%] w-5 h-5 border border-emerald-200/30 rounded-full animate-float-slow"
+                  style={{ animationDelay: "2s" }}
+                />
 
                 <div className="text-center px-6 max-w-md">
                   {/* 3-ring celebration badge */}
@@ -1240,7 +1410,9 @@ export default function Home() {
                       <div
                         key={item.verse.verse}
                         className="bg-white/90 backdrop-blur-sm border border-white rounded-2xl shadow-lg shadow-emerald-100/10 overflow-hidden animate-fade-in-up-fast"
-                        style={{ animationDelay: `${Math.min(idx * 0.03, 0.3)}s` }}
+                        style={{
+                          animationDelay: `${Math.min(idx * 0.03, 0.3)}s`,
+                        }}
                       >
                         {/* Verse header */}
                         <div className="flex items-center justify-between px-5 py-3 bg-gradient-to-l from-emerald-50 to-transparent border-b border-emerald-50">
