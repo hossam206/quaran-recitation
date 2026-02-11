@@ -68,6 +68,7 @@ export default function Home() {
   const currentWordRef = useRef<HTMLSpanElement>(null);
   const wrongWordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const consecutiveMissRef = useRef(0);
+  const interimProcessedCountRef = useRef(0);
 
   const playErrorSound = useCallback(() => {
     const now = Date.now();
@@ -136,6 +137,7 @@ export default function Home() {
       revealedSetRef.current = new Set();
       lastProcessedFinalIndexRef.current = 0;
       consecutiveMissRef.current = 0;
+      interimProcessedCountRef.current = 0;
       if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
       if (wrongWordTimerRef.current) clearTimeout(wrongWordTimerRef.current);
 
@@ -488,8 +490,7 @@ export default function Home() {
         setDebugSpokenText(latestTranscript);
       }
 
-      // Only process FINAL results for word advancement — interim results are
-      // unstable and change over time, causing phantom extra words
+      // Process FINAL results — reconcile with words already handled via interim
       for (
         let i = lastProcessedFinalIndexRef.current;
         i < event.results.length;
@@ -501,18 +502,46 @@ export default function Home() {
         const transcript = result[0].transcript;
         if (!transcript) {
           lastProcessedFinalIndexRef.current = i + 1;
+          interimProcessedCountRef.current = 0;
           continue;
         }
 
         const normalizedSpoken = normalizeArabic(transcript);
         const words = normalizedSpoken.split(/\s+/).filter(Boolean);
 
-        if (words.length > 0) {
+        // Only process words beyond what interim already handled
+        const alreadyProcessed = interimProcessedCountRef.current;
+        interimProcessedCountRef.current = 0;
+
+        if (words.length > alreadyProcessed) {
+          const newWords = words.slice(alreadyProcessed);
           setDebugNormalizedSpoken(words.join(" "));
-          processNewWords(words);
+          processNewWords(newWords);
         }
 
         lastProcessedFinalIndexRef.current = i + 1;
+      }
+
+      // Process interim results in real-time (skip last word — still forming)
+      if (!latestResult.isFinal) {
+        const transcript = latestResult[0].transcript;
+        if (transcript) {
+          const normalizedSpoken = normalizeArabic(transcript);
+          const words = normalizedSpoken.split(/\s+/).filter(Boolean);
+          const stableWordCount = Math.max(0, words.length - 1);
+
+          if (stableWordCount > interimProcessedCountRef.current) {
+            const newWords = words.slice(
+              interimProcessedCountRef.current,
+              stableWordCount,
+            );
+            if (newWords.length > 0) {
+              setDebugNormalizedSpoken(words.join(" "));
+              processNewWords(newWords);
+              interimProcessedCountRef.current = stableWordCount;
+            }
+          }
+        }
       }
     };
 
@@ -581,6 +610,7 @@ export default function Home() {
     revealedSetRef.current = new Set();
     lastProcessedFinalIndexRef.current = 0;
     consecutiveMissRef.current = 0;
+    interimProcessedCountRef.current = 0;
     if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
     if (wrongWordTimerRef.current) clearTimeout(wrongWordTimerRef.current);
   };
@@ -613,7 +643,7 @@ export default function Home() {
   const isComplete = totalWords > 0 && revealedWords.length >= totalWords;
 
   return (
-    <div className="h-screen flex flex-col md:flex-row bg-[#FDFBF7]" dir="rtl">
+    <div className="h-screen flex flex-col md:flex-row bg-[#FDFBF7] islamic-pattern-bg" dir="rtl">
       {/* ─── Mobile Header ─── */}
       <div className="md:hidden bg-white/80 backdrop-blur-md border-b border-emerald-100 p-4 flex items-center justify-between z-40 sticky top-0">
         <button
@@ -624,7 +654,11 @@ export default function Home() {
         </button>
         <div className="flex items-center gap-2">
           <h1 className="text-lg font-bold text-emerald-900">مُرَتِّل</h1>
-          <span className="text-2xl">📖</span>
+          <div className="w-7 h-7 bg-gradient-to-br from-emerald-500 to-emerald-700 rounded-lg flex items-center justify-center">
+            <svg viewBox="0 0 24 24" className="w-4 h-4 text-white" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
         </div>
         <div className="w-10" />
       </div>
@@ -632,15 +666,17 @@ export default function Home() {
       {/* ─── Sidebar ─── */}
       <aside
         className={`
-        fixed inset-0 z-50 md:relative md:z-20 w-full md:w-80 bg-white/70 backdrop-blur-xl border-l border-emerald-100 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out
+        fixed inset-0 z-50 md:relative md:z-20 w-full md:w-80 bg-gradient-to-b from-white/80 via-white/70 to-emerald-50/50 backdrop-blur-2xl border-l border-emerald-100/50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out sidebar-glass
         ${isSidebarOpen ? "translate-x-0" : "translate-x-full md:translate-x-0"}
       `}
       >
         <div className="p-6 md:p-8 pb-4">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-emerald-700 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-200">
-                <span className="text-xl text-white">📖</span>
+              <div className="w-11 h-11 bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-200/60 ring-2 ring-emerald-400/20">
+                <svg viewBox="0 0 24 24" className="w-6 h-6 text-white" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
               </div>
               <div>
                 <h1 className="text-lg font-bold text-emerald-900 leading-tight">
@@ -669,6 +705,15 @@ export default function Home() {
             />
             <SearchIcon className="absolute left-3 top-3 w-4 h-4 text-emerald-300" />
           </div>
+
+          {/* Decorative arch divider */}
+          <div className="flex items-center gap-3 mt-4 px-2">
+            <div className="flex-1 h-px bg-gradient-to-l from-emerald-200/60 to-transparent" />
+            <svg viewBox="0 0 40 40" className="w-4 h-4 text-emerald-300/50">
+              <polygon points="20,2 33,8 38,20 33,32 20,38 7,32 2,20 7,8" fill="currentColor"/>
+            </svg>
+            <div className="flex-1 h-px bg-gradient-to-r from-emerald-200/60 to-transparent" />
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1 scrollbar-hide">
@@ -695,10 +740,11 @@ export default function Home() {
                   {surah.englishName}
                 </span>
               </div>
-              <span
-                className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold transition-colors ${selectedSurah === surah.number ? "bg-white/20 text-white" : "bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100"}`}
-              >
-                {surah.number}
+              <span className="relative w-9 h-9 flex items-center justify-center">
+                <span className={`absolute inset-0 rounded-md rotate-45 transition-colors ${selectedSurah === surah.number ? "bg-white/20" : "bg-emerald-50 group-hover:bg-emerald-100"}`} />
+                <span className={`relative text-[10px] font-black ${selectedSurah === surah.number ? "text-white" : "text-emerald-600"}`}>
+                  {surah.number}
+                </span>
               </span>
             </button>
           ))}
@@ -713,85 +759,102 @@ export default function Home() {
       </aside>
 
       {/* ─── Main Content ─── */}
-      <main className="flex-1 flex flex-col relative overflow-hidden h-full">
-        {/* Background blobs */}
-        <div className="absolute top-0 right-0 w-64 md:w-96 h-64 md:h-96 bg-emerald-50 rounded-full blur-3xl opacity-50 -mr-32 md:-mr-48 -mt-32 md:-mt-48 pointer-events-none" />
-        <div className="absolute bottom-0 left-0 w-64 md:w-96 h-64 md:h-96 bg-amber-50 rounded-full blur-3xl opacity-50 -ml-32 md:-ml-48 -mb-32 md:-mb-48 pointer-events-none" />
+      <main className="flex-1 flex flex-col relative overflow-hidden h-full top-band">
+        {/* Background blobs — layered gradients with drift */}
+        <div
+          className="absolute top-0 right-0 w-[28rem] h-[28rem] rounded-full blur-3xl opacity-40 -mr-48 -mt-48 pointer-events-none"
+          style={{ background: 'radial-gradient(circle, rgba(16,185,129,0.3) 0%, rgba(5,150,105,0.1) 50%, transparent 70%)', animation: 'blobDrift1 20s ease-in-out infinite' }}
+        />
+        <div
+          className="absolute bottom-0 left-0 w-[28rem] h-[28rem] rounded-full blur-3xl opacity-40 -ml-48 -mb-48 pointer-events-none"
+          style={{ background: 'radial-gradient(circle, rgba(251,191,36,0.25) 0%, rgba(245,158,11,0.1) 50%, transparent 70%)', animation: 'blobDrift2 25s ease-in-out infinite' }}
+        />
+        <div
+          className="absolute top-1/2 left-1/3 w-[20rem] h-[20rem] rounded-full blur-3xl opacity-20 pointer-events-none"
+          style={{ background: 'radial-gradient(circle, rgba(244,63,94,0.15) 0%, transparent 70%)', animation: 'blobDrift3 30s ease-in-out infinite' }}
+        />
 
         {/* ─── Nav Bar with Stats ─── */}
         {selectedSurah && (
           <div className="relative z-10">
             <nav className="px-4 md:px-8 py-4 md:py-5 flex flex-col sm:flex-row items-center justify-between gap-3 mt-4">
-              <div className="flex flex-col items-center sm:items-start">
-                <h2
-                  className="text-2xl md:text-3xl font-black text-emerald-900"
-                  style={{ fontFamily: "var(--font-amiri), Amiri, serif" }}
-                >
-                  سورة {selectedSurahData?.name}
-                </h2>
-                <span className="text-[10px] md:text-xs text-emerald-500 mt-0.5">
-                  {revealedWords.length} / {totalWords} كلمة
-                </span>
+              <div className="flex items-center gap-3">
+                <div className="w-1 h-10 rounded-full bg-gradient-to-b from-emerald-400 to-emerald-600" />
+                <div className="flex flex-col items-start">
+                  <h2
+                    className="text-2xl md:text-3xl font-black text-emerald-900"
+                    style={{ fontFamily: "var(--font-amiri), Amiri, serif" }}
+                  >
+                    سورة {selectedSurahData?.name}
+                  </h2>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-[10px] md:text-xs text-emerald-500">
+                      {revealedWords.length} / {totalWords} كلمة
+                    </span>
+                    <div className="w-12 h-px bg-gradient-to-r from-emerald-200 to-transparent" />
+                  </div>
+                </div>
               </div>
 
               <div className="flex gap-2">
                 {/* Accuracy */}
-                <div className="bg-white/80 backdrop-blur border border-emerald-100 px-3 md:px-4 py-2 rounded-2xl flex items-center gap-2 shadow-sm">
-                  <div className="relative w-8 h-8">
-                    <svg className="w-8 h-8 -rotate-90" viewBox="0 0 36 36">
-                      <circle
-                        cx="18"
-                        cy="18"
-                        r="14"
-                        fill="none"
-                        stroke="#d1fae5"
-                        strokeWidth="3"
-                      />
-                      <circle
-                        cx="18"
-                        cy="18"
-                        r="14"
-                        fill="none"
-                        stroke="#10b981"
-                        strokeWidth="3"
-                        strokeDasharray={`${accuracy * 0.88} 88`}
-                        strokeLinecap="round"
-                        className="transition-all duration-500"
-                      />
+                <div className="bg-white/80 backdrop-blur border border-emerald-100 px-3 md:px-4 py-2 rounded-2xl flex items-center gap-2 shadow-sm ring-1 ring-emerald-50">
+                  <div className="relative w-10 h-10">
+                    <svg className="w-10 h-10 -rotate-90" viewBox="0 0 36 36">
+                      <circle cx="18" cy="18" r="14" fill="none" stroke="#d1fae5" strokeWidth="2.5" />
+                      <circle cx="18" cy="18" r="14" fill="none" stroke="url(#accuracyGrad)" strokeWidth="2.5" strokeDasharray={`${accuracy * 0.88} 88`} strokeLinecap="round" className="transition-all duration-500" />
+                      <defs>
+                        <linearGradient id="accuracyGrad" x1="0" y1="0" x2="1" y2="1">
+                          <stop offset="0%" stopColor="#10b981" />
+                          <stop offset="100%" stopColor="#059669" />
+                        </linearGradient>
+                      </defs>
                     </svg>
-                    <span className="absolute inset-0 flex items-center justify-center text-[8px] font-black text-emerald-700">
+                    <span className="absolute inset-0 flex items-center justify-center text-[9px] font-black text-emerald-700">
                       {accuracy}%
                     </span>
                   </div>
-                  <span className="text-[13px] font-semibold text-emerald-600 hidden md:block">
-                    الدقة
-                  </span>
+                  <div className="hidden md:flex flex-col">
+                    <span className="text-[13px] font-semibold text-emerald-600">الدقة</span>
+                    <span className="text-[9px] text-emerald-400">accuracy</span>
+                  </div>
                 </div>
 
                 {/* Errors */}
                 <div
-                  className={`backdrop-blur border px-3 md:px-4 py-2 rounded-2xl flex items-center gap-2 shadow-sm transition-colors ${errorCount > 0 ? "bg-rose-50/80 border-rose-100" : "bg-white/80 border-emerald-100"}`}
+                  className={`backdrop-blur border px-3 md:px-4 py-2 rounded-2xl flex items-center gap-2 shadow-sm ring-1 transition-colors ${errorCount > 0 ? "bg-rose-50/80 border-rose-100 ring-rose-50" : "bg-white/80 border-emerald-100 ring-emerald-50"}`}
                 >
                   <span
                     className={`text-lg md:text-xl font-black ${errorCount > 0 ? "text-rose-500" : "text-emerald-300"}`}
                   >
                     {errorCount}
                   </span>
-                  <span
-                    className={`text-[13px] font-bold hidden md:block ${errorCount > 0 ? "text-rose-400" : "text-emerald-400"}`}
-                  >
-                    أخطاء
-                  </span>
+                  <div className={`hidden md:flex flex-col ${errorCount > 0 ? "text-rose-400" : "text-emerald-400"}`}>
+                    <span className="text-[13px] font-bold">أخطاء</span>
+                    <span className="text-[9px]">errors</span>
+                  </div>
                 </div>
               </div>
             </nav>
 
             {/* Progress bar */}
-            <div className="h-1 bg-emerald-50 mx-4 md:mx-8 rounded-full overflow-hidden">
+            <div className="relative h-2 bg-emerald-50 mx-4 md:mx-8 rounded-full overflow-hidden ring-1 ring-emerald-100/50">
               <div
-                className="h-full bg-gradient-to-l from-emerald-400 to-emerald-600 rounded-full transition-all duration-700 ease-out animate-progress-glow"
+                className="h-full bg-gradient-to-l from-emerald-400 to-emerald-600 rounded-full transition-all duration-700 ease-out animate-progress-glow relative"
                 style={{ width: `${progressPercent}%` }}
-              />
+              >
+                {/* Shine sweep */}
+                <div className="absolute inset-0 overflow-hidden rounded-full">
+                  <div className="absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-progress-shine" />
+                </div>
+              </div>
+              {/* Glowing head dot */}
+              {progressPercent > 0 && progressPercent < 100 && (
+                <div
+                  className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-white rounded-full border-2 border-emerald-500 shadow-md shadow-emerald-300/50 transition-all duration-700"
+                  style={{ left: `calc(${progressPercent}% - 7px)` }}
+                />
+              )}
             </div>
           </div>
         )}
@@ -802,43 +865,71 @@ export default function Home() {
             {!selectedSurah ? (
               /* ─── Welcome State ─── */
               <div className="h-full flex flex-col items-center justify-center text-center mt-10 px-6 animate-fade-in-up">
-                <div className="w-28 h-28 bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-full flex items-center justify-center mb-8 shadow-lg shadow-emerald-100/50">
-                  <span className="text-5xl">🕌</span>
+                {/* Mosque dome icon */}
+                <div className="relative w-32 h-32 mb-8">
+                  <div className="absolute inset-0 bg-gradient-to-br from-emerald-200/40 to-amber-100/40 rounded-full animate-breathe" />
+                  <div className="absolute inset-2 bg-gradient-to-br from-emerald-50 to-white rounded-full shadow-xl shadow-emerald-100/60 flex items-center justify-center">
+                    <svg viewBox="0 0 24 24" className="w-14 h-14 text-emerald-600/80" fill="none" stroke="currentColor" strokeWidth="1">
+                      <path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </div>
                 </div>
+
                 <h3 className="text-2xl font-black text-emerald-900 mb-3">
                   مرحباً بك في مُرَتِّل
                 </h3>
-                <p className="text-emerald-600 max-w-xs text-sm mb-10 leading-relaxed">
+                <p className="text-emerald-600 max-w-xs text-sm mb-4 leading-relaxed">
                   اختبر حفظك وحسّن تلاوتك بتقنية التعرف على الصوت
                 </p>
 
-                <div className="flex gap-4 md:gap-6">
+                {/* Decorative divider */}
+                <div className="flex items-center gap-3 mb-10 max-w-xs">
+                  <div className="flex-1 h-px bg-gradient-to-l from-emerald-200/50 to-transparent" />
+                  <svg viewBox="0 0 40 40" className="w-4 h-4 text-emerald-300/40">
+                    <polygon points="20,2 33,8 38,20 33,32 20,38 7,32 2,20 7,8" fill="currentColor"/>
+                  </svg>
+                  <div className="flex-1 h-px bg-gradient-to-r from-emerald-200/50 to-transparent" />
+                </div>
+
+                {/* Steps with SVG icons */}
+                <div className="relative flex gap-4 md:gap-8">
+                  <div className="absolute top-7 left-8 right-8 h-px bg-gradient-to-r from-transparent via-emerald-200 to-transparent z-0" />
                   {[
                     {
-                      icon: "📋",
+                      icon: (
+                        <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.5">
+                          <path d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      ),
                       title: "اختر سورة",
                       desc: "من القائمة الجانبية",
                     },
                     {
-                      icon: "🎙️",
+                      icon: (
+                        <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor">
+                          <path d="M8.25 4.5a3.75 3.75 0 117.5 0v8.25a3.75 3.75 0 11-7.5 0V4.5z"/>
+                          <path d="M6 10.5a.75.75 0 01.75.75 5.25 5.25 0 1010.5 0 .75.75 0 011.5 0 6.75 6.75 0 01-6 6.709V21a.75.75 0 01-1.5 0v-3.041a6.75 6.75 0 01-6-6.709.75.75 0 01.75-.75z"/>
+                        </svg>
+                      ),
                       title: "ابدأ التلاوة",
                       desc: "التعرف التلقائي",
                     },
-                    { icon: "✅", title: "راجع أدائك", desc: "دقة وأخطاء" },
+                    {
+                      icon: (
+                        <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.5">
+                          <path d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      ),
+                      title: "راجع أدائك",
+                      desc: "دقة وأخطاء",
+                    },
                   ].map((step, i) => (
-                    <div
-                      key={i}
-                      className="flex flex-col items-center gap-2 w-24 md:w-28"
-                    >
-                      <div className="w-14 h-14 bg-white rounded-2xl shadow-md shadow-emerald-100/50 flex items-center justify-center text-2xl border border-emerald-50">
+                    <div key={i} className="relative z-10 flex flex-col items-center gap-2.5 w-24 md:w-32">
+                      <div className="w-14 h-14 bg-gradient-to-br from-white to-emerald-50 rounded-2xl shadow-lg shadow-emerald-100/40 flex items-center justify-center text-emerald-600 border border-emerald-100/50 ring-1 ring-white">
                         {step.icon}
                       </div>
-                      <span className="text-xs font-bold text-emerald-800">
-                        {step.title}
-                      </span>
-                      <span className="text-[10px] text-emerald-500 leading-tight">
-                        {step.desc}
-                      </span>
+                      <span className="text-xs font-bold text-emerald-800">{step.title}</span>
+                      <span className="text-[10px] text-emerald-500 leading-tight">{step.desc}</span>
                     </div>
                   ))}
                 </div>
@@ -854,9 +945,13 @@ export default function Home() {
               <div className="space-y-8 md:space-y-12 animate-fade-in-up">
                 {/* ─── Bismillah ─── */}
                 {selectedSurah !== 1 && selectedSurah !== 9 && (
-                  <div className="text-center py-4">
-                    <div className="ornament-line mb-4">
-                      <span className="text-emerald-300 text-lg">✦</span>
+                  <div className="text-center py-6 md:py-8">
+                    <div className="flex items-center gap-4 max-w-xs mx-auto mb-5">
+                      <div className="flex-1 h-px bg-gradient-to-l from-emerald-300/40 to-transparent" />
+                      <svg viewBox="0 0 40 40" className="w-5 h-5 text-emerald-400/40">
+                        <polygon points="20,2 33,8 38,20 33,32 20,38 7,32 2,20 7,8" fill="currentColor"/>
+                      </svg>
+                      <div className="flex-1 h-px bg-gradient-to-r from-emerald-300/40 to-transparent" />
                     </div>
                     <p
                       className="text-2xl md:text-4xl text-emerald-800 tracking-wide"
@@ -864,16 +959,27 @@ export default function Home() {
                     >
                       بِسۡمِ ٱللَّهِ ٱلرَّحۡمَٰنِ ٱلرَّحِيمِ
                     </p>
-                    <div className="ornament-line mt-4">
-                      <span className="text-emerald-300 text-lg">✦</span>
+                    <div className="flex items-center gap-4 max-w-xs mx-auto mt-5">
+                      <div className="flex-1 h-px bg-gradient-to-l from-emerald-300/40 to-transparent" />
+                      <svg viewBox="0 0 40 40" className="w-5 h-5 text-emerald-400/40">
+                        <polygon points="20,2 33,8 38,20 33,32 20,38 7,32 2,20 7,8" fill="currentColor"/>
+                      </svg>
+                      <div className="flex-1 h-px bg-gradient-to-r from-emerald-300/40 to-transparent" />
                     </div>
                   </div>
                 )}
 
                 {/* ─── Verse Display ─── */}
-                <div className="relative bg-white/90 backdrop-blur-sm rounded-[1.5rem] md:rounded-[2rem] border border-white shadow-2xl shadow-emerald-100/20 p-6 md:p-16">
+                <div className="relative bg-white/90 backdrop-blur-sm rounded-[1.5rem] md:rounded-[2rem] border border-white shadow-2xl shadow-emerald-100/20 p-6 md:p-16 verse-card-corners">
+                  {/* Corner ornaments */}
+                  <div className="corner corner-tr" />
+                  <div className="corner corner-tl" />
+                  <div className="corner corner-br" />
+                  <div className="corner corner-bl" />
+                  {/* Inner top glow */}
+                  <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-emerald-50/30 to-transparent rounded-t-[1.5rem] md:rounded-t-[2rem] pointer-events-none" />
                   <div
-                    className="text-2xl md:text-4xl leading-[3.5rem] md:leading-[5.5rem] text-center"
+                    className="relative text-2xl md:text-4xl leading-[3.5rem] md:leading-[5.5rem] text-center"
                     style={{ fontFamily: "var(--font-amiri), Amiri, serif" }}
                   >
                     {verses.map((verse, vIdx) => {
@@ -916,8 +1022,12 @@ export default function Home() {
                               </span>
                             );
                           })}
-                          <span className="inline-flex items-center text-lg md:text-2xl text-amber-500/40 font-serif mx-1 md:mx-3 select-none">
-                            ﴿{verse.verse}﴾
+                          {/* Octagonal verse number medallion */}
+                          <span className="inline-flex items-center mx-1 md:mx-3 select-none align-middle">
+                            <svg viewBox="0 0 40 40" className="w-8 h-8 md:w-10 md:h-10">
+                              <polygon points="20,2 33,8 38,20 33,32 20,38 7,32 2,20 7,8" fill="none" stroke="rgba(245,158,11,0.25)" strokeWidth="1.5"/>
+                              <text x="20" y="22" textAnchor="middle" dominantBaseline="middle" fill="rgba(245,158,11,0.6)" fontSize="12" fontFamily="var(--font-amiri), Amiri, serif" fontWeight="700">{verse.verse}</text>
+                            </svg>
                           </span>
                         </span>
                       );
@@ -931,37 +1041,44 @@ export default function Home() {
 
         {/* ─── Completion Overlay ─── */}
         {isComplete && (
-          <div className="absolute inset-0 z-40 bg-white/80 backdrop-blur-lg animate-fade-in-up">
+          <div className="absolute inset-0 z-40 backdrop-blur-lg animate-fade-in-up" style={{ background: 'radial-gradient(ellipse at center, rgba(255,255,255,0.95) 0%, rgba(236,253,245,0.85) 50%, rgba(255,255,255,0.9) 100%)' }}>
             {!showMistakesReview ? (
               /* ─── Summary View ─── */
-              <div className="h-full flex items-center justify-center relative">
-                {/* Decorative sparkles */}
-                <div className="absolute top-[15%] right-[20%] text-amber-400 text-2xl sparkle-1">
-                  ✦
+              <div className="h-full flex items-center justify-center relative overflow-hidden">
+                {/* Floating geometric shapes */}
+                <div className="absolute top-[12%] right-[18%] w-6 h-6 border-2 border-amber-300/30 rounded-sm rotate-45 animate-float-slow" />
+                <div className="absolute top-[22%] left-[12%] w-4 h-4 bg-emerald-300/20 rounded-full animate-float-medium" />
+                <div className="absolute bottom-[28%] right-[12%] animate-float-slow" style={{ animationDelay: '1s' }}>
+                  <svg viewBox="0 0 40 40" className="w-8 h-8 text-emerald-300/20">
+                    <polygon points="20,2 33,8 38,20 33,32 20,38 7,32 2,20 7,8" fill="currentColor"/>
+                  </svg>
                 </div>
-                <div className="absolute top-[25%] left-[15%] text-emerald-400 text-lg sparkle-2">
-                  ✦
-                </div>
-                <div className="absolute bottom-[30%] right-[15%] text-emerald-300 text-xl sparkle-3">
-                  ✦
-                </div>
-                <div className="absolute bottom-[20%] left-[25%] text-amber-300 text-sm sparkle-4">
-                  ✦
-                </div>
+                <div className="absolute bottom-[18%] left-[22%] w-3 h-3 bg-amber-300/20 rounded-full animate-float-medium" style={{ animationDelay: '0.5s' }} />
+                <div className="absolute top-[40%] right-[8%] w-5 h-5 border border-emerald-200/30 rounded-full animate-float-slow" style={{ animationDelay: '2s' }} />
 
-                <div className="text-center px-6 max-w-sm">
-                  <div className="w-20 h-20 bg-gradient-to-br from-emerald-400 to-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl shadow-emerald-200">
-                    <CheckIcon className="w-10 h-10 text-white" />
+                <div className="text-center px-6 max-w-md">
+                  {/* 3-ring celebration badge */}
+                  <div className="relative w-28 h-28 mx-auto mb-6">
+                    {/* Outer dashed ring - slow spin */}
+                    <div className="absolute inset-0 rounded-full border-2 border-dashed border-emerald-200/50 animate-spin-slow" />
+                    {/* Middle glow ring */}
+                    <div className="absolute inset-2 rounded-full bg-emerald-100/40 shadow-lg shadow-emerald-200/30" />
+                    {/* Inner gradient badge */}
+                    <div className="absolute inset-4 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-xl shadow-emerald-300/50 flex items-center justify-center">
+                      <CheckIcon className="w-10 h-10 text-white" />
+                    </div>
                   </div>
+
                   <h3 className="text-2xl font-black text-emerald-900 mb-2">
                     أحسنت!
                   </h3>
-                  <p className="text-emerald-600 text-sm mb-6">
+                  <p className="text-emerald-600 text-sm mb-8">
                     أتممت تلاوة {selectedSurahData?.name}
                   </p>
 
-                  <div className="flex justify-center gap-4 mb-8">
-                    <div className="bg-emerald-50 border border-emerald-100 rounded-2xl px-5 py-3 text-center">
+                  {/* Stat cards */}
+                  <div className="flex justify-center gap-3 mb-8">
+                    <div className="bg-gradient-to-br from-emerald-50 to-white border border-emerald-100 rounded-2xl px-5 py-3 text-center shadow-sm ring-1 ring-emerald-50">
                       <div className="text-2xl font-black text-emerald-600">
                         {accuracy}%
                       </div>
@@ -969,8 +1086,16 @@ export default function Home() {
                         الدقة
                       </div>
                     </div>
+                    <div className="bg-gradient-to-br from-amber-50 to-white border border-amber-100 rounded-2xl px-5 py-3 text-center shadow-sm ring-1 ring-amber-50">
+                      <div className="text-2xl font-black text-amber-600">
+                        {totalWords}
+                      </div>
+                      <div className="text-[10px] font-bold text-amber-500 mt-0.5">
+                        كلمة
+                      </div>
+                    </div>
                     <div
-                      className={`border rounded-2xl px-5 py-3 text-center ${errorCount > 0 ? "bg-rose-50 border-rose-100" : "bg-emerald-50 border-emerald-100"}`}
+                      className={`border rounded-2xl px-5 py-3 text-center shadow-sm ring-1 ${errorCount > 0 ? "bg-gradient-to-br from-rose-50 to-white border-rose-100 ring-rose-50" : "bg-gradient-to-br from-emerald-50 to-white border-emerald-100 ring-emerald-50"}`}
                     >
                       <div
                         className={`text-2xl font-black ${errorCount > 0 ? "text-rose-500" : "text-emerald-600"}`}
@@ -989,8 +1114,9 @@ export default function Home() {
                     <div className="flex gap-3 justify-center">
                       <button
                         onClick={handleReset}
-                        className="px-6 py-3 bg-gradient-to-l from-emerald-500 to-emerald-600 text-white rounded-2xl font-bold text-sm shadow-lg shadow-emerald-200/50 active:scale-95 transition-transform"
+                        className="px-6 py-3 bg-gradient-to-l from-emerald-500 to-emerald-600 text-white rounded-2xl font-bold text-sm shadow-lg shadow-emerald-200/50 active:scale-95 transition-transform flex items-center gap-2"
                       >
+                        <RefreshIcon className="w-4 h-4" />
                         إعادة التلاوة
                       </button>
                       <button
@@ -1237,11 +1363,16 @@ export default function Home() {
               )}
 
               {/* Main control bar */}
-              <div className="bg-white/90 backdrop-blur-2xl border border-white/80 rounded-full shadow-2xl shadow-emerald-100/30 px-8 md:px-14 py-3 md:py-4 flex items-center justify-center gap-12 md:gap-10">
+              <div className="relative bg-white/90 backdrop-blur-2xl border border-white/80 rounded-full shadow-2xl shadow-emerald-100/30 px-8 md:px-14 py-3 md:py-4 flex items-center justify-center gap-12 md:gap-10 ring-1 ring-white/60">
+                {/* Top edge highlight */}
+                <div className="absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-white to-transparent" />
+                {/* Bottom edge highlight */}
+                <div className="absolute inset-x-4 bottom-0 h-px bg-gradient-to-r from-transparent via-emerald-200/30 to-transparent" />
+
                 {/* Reset */}
                 <button
                   onClick={handleReset}
-                  className="w-12 h-12 md:w-14 md:h-14 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center hover:bg-emerald-100 active:scale-95 transition-all"
+                  className="w-12 h-12 md:w-14 md:h-14 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center hover:bg-emerald-100 hover:shadow-md hover:shadow-emerald-100/50 active:scale-95 transition-all"
                 >
                   <RefreshIcon className="w-6 h-6" />
                 </button>
@@ -1272,22 +1403,24 @@ export default function Home() {
                   <div className="relative">
                     {isListening && (
                       <>
-                        <div className="absolute inset-0 rounded-full bg-rose-400/20 animate-sonar" />
-                        <div className="absolute inset-0 rounded-full bg-rose-400/15 animate-sonar-delayed" />
+                        <div className="absolute -inset-3 rounded-full bg-rose-400/20 animate-sonar" />
+                        <div className="absolute -inset-3 rounded-full bg-rose-400/15 animate-sonar-delayed" />
                       </>
                     )}
                     <button
                       onClick={toggleListening}
-                      className={`relative z-10 w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center transition-all active:scale-90 shadow-lg ${
+                      className={`relative z-10 w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center transition-all active:scale-90 shadow-lg ring-2 ${
                         isListening
-                          ? "bg-gradient-to-br from-rose-400 to-rose-600 shadow-rose-200/50"
-                          : "bg-gradient-to-br from-emerald-500 to-emerald-700 shadow-emerald-200/50"
+                          ? "bg-gradient-to-br from-rose-400 to-rose-600 shadow-rose-200/50 ring-rose-300/40"
+                          : "bg-gradient-to-br from-emerald-500 to-emerald-700 shadow-emerald-200/50 ring-emerald-400/30"
                       }`}
                     >
+                      {/* Inner highlight */}
+                      <div className="absolute inset-0 rounded-full bg-gradient-to-b from-white/20 to-transparent pointer-events-none" />
                       {isListening ? (
-                        <StopIcon className="w-6 h-6 text-white" />
+                        <StopIcon className="w-6 h-6 text-white relative z-10" />
                       ) : (
-                        <MicIcon className="w-8 h-8 text-white" />
+                        <MicIcon className="w-8 h-8 text-white relative z-10" />
                       )}
                     </button>
                   </div>
@@ -1296,7 +1429,7 @@ export default function Home() {
                 {/* Debug toggle */}
                 <button
                   onClick={() => setShowDebug((v) => !v)}
-                  className={`w-12 h-12 md:w-14 md:h-14 rounded-xl flex items-center justify-center active:scale-95 transition-all ${showDebug ? "bg-gray-100 text-gray-600" : "bg-emerald-50 text-emerald-400"}`}
+                  className={`w-12 h-12 md:w-14 md:h-14 rounded-xl flex items-center justify-center active:scale-95 transition-all hover:shadow-md ${showDebug ? "bg-gray-100 text-gray-600 hover:shadow-gray-100/50" : "bg-emerald-50 text-emerald-400 hover:shadow-emerald-100/50"}`}
                 >
                   <BugIcon className="w-5 h-5" />
                 </button>
