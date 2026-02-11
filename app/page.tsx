@@ -32,6 +32,7 @@ interface NormalizedVerse {
 
 export default function Home() {
   const [surahs, setSurahs] = useState<Surah[]>([]);
+  const [loadingSurahs, setLoadingSurahs] = useState(true);
   const [selectedSurah, setSelectedSurah] = useState<number | null>(null);
   const [verses, setVerses] = useState<VerseData[]>([]);
   const [loadingVerses, setLoadingVerses] = useState(false);
@@ -99,7 +100,8 @@ export default function Home() {
     fetch("/api/surahs")
       .then((res) => res.json())
       .then((data) => setSurahs(data))
-      .catch(console.error);
+      .catch(console.error)
+      .finally(() => setLoadingSurahs(false));
   }, []);
 
   const normalizedVerses = useMemo(() => {
@@ -743,41 +745,60 @@ export default function Home() {
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1 scrollbar-hide">
-          {filteredSurahs?.map((surah) => (
-            <button
-              key={surah.number}
-              onClick={() => setSelectedSurah(surah.number)}
-              className={`
-                w-full text-right px-4 py-3 rounded-2xl flex items-center justify-between transition-all duration-200 group active:scale-[0.98] cursor-pointer
-                ${
-                  selectedSurah === surah.number
-                    ? "bg-gradient-to-l from-emerald-600 to-emerald-500 text-white shadow-lg shadow-emerald-200/50"
-                    : "hover:bg-emerald-50 text-emerald-900"
-                }
-              `}
-            >
-              <div className="flex flex-col">
-                <span className="font-bold text-sm md:text-[1.05rem] !cursor-pointer">
-                  {surah.name}
-                </span>
-                <span
-                  className={`text-[0.6rem] !cursor-pointer ${selectedSurah === surah.number ? "text-emerald-100" : "text-emerald-500"}`}
+          {loadingSurahs
+            ? Array.from({ length: 12 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="w-full px-4 py-3 rounded-2xl flex items-center justify-between animate-pulse"
                 >
-                  {surah.englishName}
-                </span>
-              </div>
-              <span className="relative w-9 h-9 flex items-center justify-center">
-                <span
-                  className={`absolute inset-0 rounded-md rotate-45 transition-colors ${selectedSurah === surah.number ? "bg-white/20" : "bg-emerald-50 group-hover:bg-emerald-100"}`}
-                />
-                <span
-                  className={`relative text-[10px] font-black ${selectedSurah === surah.number ? "text-white" : "text-emerald-600"}`}
+                  <div className="flex flex-col gap-2">
+                    <div
+                      className="h-4 bg-emerald-100/80 rounded-full"
+                      style={{ width: `${5 + (i % 3) * 1.5}rem` }}
+                    />
+                    <div
+                      className="h-2.5 bg-emerald-50 rounded-full"
+                      style={{ width: `${3 + (i % 4) * 0.8}rem` }}
+                    />
+                  </div>
+                  <div className="w-9 h-9 bg-emerald-50 rounded-md rotate-45" />
+                </div>
+              ))
+            : filteredSurahs?.map((surah) => (
+                <button
+                  key={surah.number}
+                  onClick={() => setSelectedSurah(surah.number)}
+                  className={`
+                    w-full text-right px-4 py-3 rounded-2xl flex items-center justify-between transition-all duration-200 group active:scale-[0.98] cursor-pointer
+                    ${
+                      selectedSurah === surah.number
+                        ? "bg-gradient-to-l from-emerald-600 to-emerald-500 text-white shadow-lg shadow-emerald-200/50"
+                        : "hover:bg-emerald-50 text-emerald-900"
+                    }
+                  `}
                 >
-                  {surah.number}
-                </span>
-              </span>
-            </button>
-          ))}
+                  <div className="flex flex-col">
+                    <span className="font-bold text-sm md:text-[1.05rem] !cursor-pointer">
+                      {surah.name}
+                    </span>
+                    <span
+                      className={`text-[0.6rem] !cursor-pointer ${selectedSurah === surah.number ? "text-emerald-100" : "text-emerald-500"}`}
+                    >
+                      {surah.englishName}
+                    </span>
+                  </div>
+                  <span className="relative w-9 h-9 flex items-center justify-center">
+                    <span
+                      className={`absolute inset-0 rounded-md rotate-45 transition-colors ${selectedSurah === surah.number ? "bg-white/20" : "bg-emerald-50 group-hover:bg-emerald-100"}`}
+                    />
+                    <span
+                      className={`relative text-[10px] font-black ${selectedSurah === surah.number ? "text-white" : "text-emerald-600"}`}
+                    >
+                      {surah.number}
+                    </span>
+                  </span>
+                </button>
+              ))}
         </div>
 
         {/* Copyright */}
