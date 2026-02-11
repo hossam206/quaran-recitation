@@ -703,6 +703,13 @@ export default function Home() {
             </button>
           ))}
         </div>
+
+        {/* Copyright */}
+        <div className="px-6 py-4 border-t border-emerald-100 text-center">
+          <p className="text-[10px] text-emerald-400">
+            &copy; {new Date().getFullYear()} Hossam Mohamed
+          </p>
+        </div>
       </aside>
 
       {/* ─── Main Content ─── */}
