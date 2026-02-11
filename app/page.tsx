@@ -49,6 +49,8 @@ export default function Home() {
   const [debugExpectedWord, setDebugExpectedWord] = useState("");
   const [showDebug, setShowDebug] = useState(false);
   const [wrongWordFlash, setWrongWordFlash] = useState<string | null>(null);
+  const [hintWord, setHintWord] = useState<string | null>(null);
+  const [maxTries, setMaxTries] = useState(3);
   const [showMistakesReview, setShowMistakesReview] = useState(false);
 
   // Refs for speech recognition processing
@@ -132,6 +134,7 @@ export default function Home() {
       setDebugExpectedWord("");
       setIsSidebarOpen(false);
       setWrongWordFlash(null);
+      setHintWord(null);
       setShowMistakesReview(false);
 
       vIdxRef.current = 0;
@@ -290,6 +293,7 @@ export default function Home() {
 
         if (newReveals.length > 0) {
           consecutiveMissRef.current = 0;
+          setHintWord(null);
           vIdxRef.current = vIdx;
           wIdxRef.current = wIdx;
           setRevealedWords((prev) => [...prev, ...newReveals]);
@@ -404,6 +408,7 @@ export default function Home() {
           const allReveals = [...skippedReveals, ...matchReveals];
           if (allReveals.length > 0) {
             consecutiveMissRef.current = 0;
+            setHintWord(null);
             vIdxRef.current = matchV;
             wIdxRef.current = matchW;
             setRevealedWords((prev) => [...prev, ...allReveals]);
@@ -424,9 +429,10 @@ export default function Home() {
           if (wrongWordTimerRef.current)
             clearTimeout(wrongWordTimerRef.current);
 
-          if (consecutiveMissRef.current >= 3) {
-            // After 3 wrong attempts, reveal the expected word as incorrect and advance
+          if (consecutiveMissRef.current >= maxTries + 1) {
+            // After maxTries+1: hint was shown, user still failed — mark wrong and advance
             consecutiveMissRef.current = 0;
+            setHintWord(null);
             const key = `${currentVerse.verse}-${wIdx}`;
             if (!revealedSetRef.current.has(key)) {
               revealedSetRef.current.add(key);
@@ -453,6 +459,13 @@ export default function Home() {
               () => setWrongWordFlash(null),
               2000,
             );
+          } else if (consecutiveMissRef.current >= maxTries) {
+            // After maxTries: show the correct word as a hint
+            setHintWord(currentVerse.originalWords[wIdx]);
+            wrongWordTimerRef.current = setTimeout(
+              () => setWrongWordFlash(null),
+              2000,
+            );
           } else {
             wrongWordTimerRef.current = setTimeout(
               () => setWrongWordFlash(null),
@@ -462,7 +475,7 @@ export default function Home() {
         }
       }
     },
-    [playErrorSound],
+    [playErrorSound, maxTries],
   );
 
   const startRecording = useCallback(() => {
@@ -605,6 +618,7 @@ export default function Home() {
     setDebugNormalizedSpoken("");
     setDebugExpectedWord("");
     setWrongWordFlash(null);
+    setHintWord(null);
     setShowMistakesReview(false);
 
     vIdxRef.current = 0;
@@ -1531,6 +1545,24 @@ export default function Home() {
           </div>
         )}
 
+        {/* ─── Hint Word Display (correct word prompt) ─── */}
+        {hintWord && !wrongWordFlash && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center pointer-events-none">
+            <div className="animate-slide-up">
+              <div
+                className="bg-amber-500/90 backdrop-blur-md text-white px-8 md:px-12 py-4 md:py-5 rounded-2xl text-3xl md:text-5xl shadow-2xl shadow-amber-300/40 border border-amber-400/50 flex items-center justify-center gap-3"
+                style={{
+                  fontFamily: "var(--font-amiri), Amiri, serif",
+                  minWidth: "16rem",
+                }}
+              >
+                <span className="text-amber-200 text-lg md:text-xl">💡</span>
+                <span className="font-bold">{hintWord}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ─── Control Panel (centered) ─── */}
         {selectedSurah && !loadingVerses && !isComplete && (
           <div className="fixed bottom-0 left-1/2 right-1/2 z-30 pb-4 md:pb-6 pt-4 pointer-events-none flex flex-col justify-center items-center">
@@ -1554,6 +1586,30 @@ export default function Home() {
                   </div>
                 </div>
               )}
+
+              {/* Tries selector */}
+              <div className="mb-2 flex items-center justify-center gap-2">
+                <span className="text-[11px] font-semibold text-emerald-700/70">
+                  المحاولات
+                </span>
+                <div className="flex items-center gap-1 bg-white/80 backdrop-blur-md rounded-full px-2 py-1 border border-emerald-100/60 shadow-sm">
+                  <button
+                    onClick={() => setMaxTries((v) => Math.max(1, v - 1))}
+                    className="w-6 h-6 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center text-sm font-bold hover:bg-emerald-100 active:scale-90 transition-all"
+                  >
+                    -
+                  </button>
+                  <span className="w-6 text-center text-sm font-bold text-emerald-700">
+                    {maxTries}
+                  </span>
+                  <button
+                    onClick={() => setMaxTries((v) => Math.min(10, v + 1))}
+                    className="w-6 h-6 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center text-sm font-bold hover:bg-emerald-100 active:scale-90 transition-all"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
 
               {/* Main control bar */}
               <div className="relative bg-white/90 backdrop-blur-2xl border border-white/80 rounded-full shadow-2xl shadow-emerald-100/30 px-8 md:px-14 py-3 md:py-4 flex items-center justify-center gap-12 md:gap-10 ring-1 ring-white/60">
