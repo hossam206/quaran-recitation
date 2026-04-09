@@ -11,17 +11,74 @@ export interface Surah {
 // Type for the quran.json structure
 type QuranData = Record<string, Array<{ chapter: number; verse: number; text: string }>>;
 
+// ─── Pre-compiled regex patterns (created once at module load, not per call) ───
+const RE_DIACRITICS = /[\u064B-\u065F]/g;
+const RE_ARABIC_SIGNS = /[\u0610-\u061A]/g;
+const RE_QURANIC_ANNOTATIONS = /[\u06D6-\u06ED]/g;
+const RE_ADDITIONAL_MARKS = /[\u0653-\u0656]/g;
+const RE_SUPERSCRIPT_ALEF = /\u0670/g;
+const RE_ALEF_VARIANTS = /[\u0623\u0625\u0622\u0671]/g;
+const RE_ALEF_MAQSURA = /\u0649/g;
+const RE_TAA_MARBUTA = /\u0629/g;
+const RE_HAMZA_WAW = /\u0624/g;
+const RE_HAMZA_YA = /\u0626/g;
+const RE_WHITESPACE = /\s+/g;
+
+// Pre-compiled letter mapping regexes (longest patterns first for greedy matching)
+const LETTER_MAPPINGS: [RegExp, string][] = [
+  // 5-word patterns
+  [/كاف هاء ياء عين صاد/g, "كهيعص"],
+  [/كاف ها يا عين صاد/g, "كهيعص"],
+  [/حاء ميم عين سين قاف/g, "حمعسق"],
+  [/حا ميم عين سين قاف/g, "حمعسق"],
+  // 4-word patterns
+  [/ألف لام ميم صاد/g, "المص"],
+  [/الف لام ميم صاد/g, "المص"],
+  [/الف لا ميم صاد/g, "المص"],
+  [/ألف لام ميم راء/g, "المر"],
+  [/الف لام ميم راء/g, "المر"],
+  [/الف لا ميم راء/g, "المر"],
+  // 3-word patterns
+  [/ألف لام ميم/g, "الم"],
+  [/الف لام ميم/g, "الم"],
+  [/ألف لا ميم/g, "الم"],
+  [/الف لا ميم/g, "الم"],
+  [/ا لام ميم/g, "الم"],
+  [/ألف لام راء/g, "الر"],
+  [/الف لام راء/g, "الر"],
+  [/ألف لا راء/g, "الر"],
+  [/الف لا راء/g, "الر"],
+  [/الف لام را/g, "الر"],
+  [/طا سين ميم/g, "طسم"],
+  [/طاء سين ميم/g, "طسم"],
+  // 2-word patterns
+  [/طا ها/g, "طه"],
+  [/طاء ها/g, "طه"],
+  [/طاء هاء/g, "طه"],
+  [/يا سين/g, "يس"],
+  [/يا س/g, "يس"],
+  [/ياء سين/g, "يس"],
+  [/حا ميم/g, "حم"],
+  [/حاء ميم/g, "حم"],
+  [/طا سين/g, "طس"],
+  [/طاء سين/g, "طس"],
+];
+
+const SINGLE_LETTER_MAPPINGS: [RegExp, string][] = [
+  [/(^|\s)صاد($|\s)/g, "$1ص$2"],
+  [/(^|\s)قاف($|\s)/g, "$1ق$2"],
+  [/(^|\s)نون($|\s)/g, "$1ن$2"],
+];
+
 /**
  * Strip Arabic diacritics (tashkeel) for comparison purposes.
- * Note: Superscript alef (U+0670) is handled separately in normalizeArabic
- * because it represents an actual alef sound.
  */
 export function stripDiacritics(text: string): string {
   return text
-    .replace(/[\u064B-\u065F]/g, "") // Tanween, Sukun, Shadda, etc.
-    .replace(/[\u0610-\u061A]/g, "") // Arabic signs
-    .replace(/[\u06D6-\u06ED]/g, "") // Quranic annotation signs
-    .replace(/[\u0653-\u0656]/g, ""); // Additional marks
+    .replace(RE_DIACRITICS, "")
+    .replace(RE_ARABIC_SIGNS, "")
+    .replace(RE_QURANIC_ANNOTATIONS, "")
+    .replace(RE_ADDITIONAL_MARKS, "");
 }
 
 /**
@@ -31,86 +88,34 @@ export function stripDiacritics(text: string): string {
  * - Handle Quranic letter sequences (الم, الر, etc.)
  * - Normalize alef variants to plain alef
  * - Normalize taa marbuta to haa
+ * - Normalize hamza carriers (ؤ→و, ئ→ي)
  * - Collapse whitespace
  */
 export function normalizeArabic(text: string): string {
   // Convert superscript alef to regular alef BEFORE stripping diacritics.
-  // Quranic text uses superscript alef (ٰ) in words like الرَّحْمَٰنِ and الظَّٰلِمِينَ.
-  // Web Speech API outputs the full alef sound, so we must preserve it.
-  let normalized = text.replace(/\u0670/g, "\u0627");
+  let normalized = text.replace(RE_SUPERSCRIPT_ALEF, "\u0627");
 
   normalized = stripDiacritics(normalized);
 
-  // Comprehensive Quranic letter sequence mappings.
-  // Sorted by pattern length (longest first) to match greedily.
-  const letterMappings: [string, string][] = [
-    // 5-word patterns
-    ["كاف هاء ياء عين صاد", "كهيعص"],
-    ["كاف ها يا عين صاد", "كهيعص"],
-    ["حاء ميم عين سين قاف", "حمعسق"],
-    ["حا ميم عين سين قاف", "حمعسق"],
-    // 4-word patterns
-    ["ألف لام ميم صاد", "المص"],
-    ["الف لام ميم صاد", "المص"],
-    ["الف لا ميم صاد", "المص"],
-    ["ألف لام ميم راء", "المر"],
-    ["الف لام ميم راء", "المر"],
-    ["الف لا ميم راء", "المر"],
-    // 3-word patterns
-    ["ألف لام ميم", "الم"],
-    ["الف لام ميم", "الم"],
-    ["ألف لا ميم", "الم"],
-    ["الف لا ميم", "الم"],
-    ["ا لام ميم", "الم"],
-    ["ألف لام راء", "الر"],
-    ["الف لام راء", "الر"],
-    ["ألف لا راء", "الر"],
-    ["الف لا راء", "الر"],
-    ["الف لام را", "الر"],
-    ["طا سين ميم", "طسم"],
-    ["طاء سين ميم", "طسم"],
-    // 2-word patterns
-    ["طا ها", "طه"],
-    ["طاء ها", "طه"],
-    ["طاء هاء", "طه"],
-    ["يا سين", "يس"],
-    ["يا س", "يس"],
-    ["ياء سين", "يس"],
-    ["حا ميم", "حم"],
-    ["حاء ميم", "حم"],
-    ["طا سين", "طس"],
-    ["طاء سين", "طس"],
-  ];
-
-  for (const [spoken, quranic] of letterMappings) {
-    normalized = normalized.replace(new RegExp(spoken, "g"), quranic);
+  for (const [pattern, replacement] of LETTER_MAPPINGS) {
+    normalized = normalized.replace(pattern, replacement);
   }
 
-  // Single-word letter names (with word boundaries to avoid matching inside words)
-  const singleLetterMappings: [string, string][] = [
-    ["صاد", "ص"],
-    ["قاف", "ق"],
-    ["نون", "ن"],
-  ];
-
-  for (const [spoken, quranic] of singleLetterMappings) {
-    normalized = normalized.replace(
-      new RegExp(`(^|\\s)${spoken}($|\\s)`, "g"),
-      `$1${quranic}$2`
-    );
+  for (const [pattern, replacement] of SINGLE_LETTER_MAPPINGS) {
+    normalized = normalized.replace(pattern, replacement);
   }
 
   // Normalize alef variants (أ إ آ ٱ) → ا
-  normalized = normalized.replace(/[\u0623\u0625\u0622\u0671]/g, "\u0627");
-
+  normalized = normalized.replace(RE_ALEF_VARIANTS, "\u0627");
   // Normalize alef maqsura (ى) → ya (ي)
-  normalized = normalized.replace(/\u0649/g, "\u064A");
-
+  normalized = normalized.replace(RE_ALEF_MAQSURA, "\u064A");
   // Normalize taa marbuta → haa
-  normalized = normalized.replace(/\u0629/g, "\u0647");
-
+  normalized = normalized.replace(RE_TAA_MARBUTA, "\u0647");
+  // Normalize hamza carriers — speech recognition often drops the hamza
+  normalized = normalized.replace(RE_HAMZA_WAW, "\u0648");
+  normalized = normalized.replace(RE_HAMZA_YA, "\u064A");
   // Collapse whitespace
-  normalized = normalized.replace(/\s+/g, " ").trim();
+  normalized = normalized.replace(RE_WHITESPACE, " ").trim();
   return normalized;
 }
 
@@ -143,8 +148,9 @@ export function levenshteinDistance(a: string, b: string): number {
 }
 
 /**
- * Fuzzy match two Arabic words, tolerating minor speech recognition differences.
- * Allows edit distance of 1 for words with 3+ characters.
+ * Fuzzy match two Arabic words, tolerating speech recognition variance.
+ * Scales tolerance with word length — longer Arabic words have more
+ * recognition variance from the Web Speech API.
  */
 export function fuzzyMatchArabic(spoken: string, expected: string): boolean {
   if (spoken === expected) return true;
@@ -153,7 +159,13 @@ export function fuzzyMatchArabic(spoken: string, expected: string): boolean {
   // Very short words: exact match only
   if (expected.length <= 2 && spoken.length <= 2) return false;
 
-  return levenshteinDistance(spoken, expected) <= 1;
+  const maxLen = Math.max(spoken.length, expected.length);
+  const distance = levenshteinDistance(spoken, expected);
+
+  // Scale tolerance with word length
+  if (maxLen <= 4) return distance <= 1;
+  if (maxLen <= 7) return distance <= 2;
+  return distance <= 3;
 }
 
 // Get all surahs

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, memo, forwardRef } from "react";
 import { normalizeArabic, fuzzyMatchArabic } from "@/lib/quran-data";
 
 interface Surah {
@@ -42,10 +42,11 @@ export default function Home() {
   const [currentVerseIndex, setCurrentVerseIndex] = useState(0);
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
   const [revealedWords, setRevealedWords] = useState<WordStatus[]>([]);
-  const [errorCount, setErrorCount] = useState(0);
-  const [debugSpokenText, setDebugSpokenText] = useState("");
-  const [debugNormalizedSpoken, setDebugNormalizedSpoken] = useState("");
-  const [debugExpectedWord, setDebugExpectedWord] = useState("");
+  // Debug text stored in refs — only read when debug panel is visible, avoids re-renders
+  const debugSpokenRef = useRef("");
+  const debugNormalizedRef = useRef("");
+  const debugExpectedRef = useRef("");
+  const debugPanelRef = useRef<HTMLDivElement>(null);
   const [showDebug, setShowDebug] = useState(false);
   const [wrongWordFlash, setWrongWordFlash] = useState<string | null>(null);
   const [showMistakesReview, setShowMistakesReview] = useState(false);
@@ -68,6 +69,21 @@ export default function Home() {
   const currentWordRef = useRef<HTMLSpanElement>(null);
   const wrongWordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const consecutiveMissRef = useRef(0);
+  const interimDisplayRef = useRef<HTMLDivElement>(null);
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Update debug refs and sync to DOM (avoids setState re-renders entirely)
+  const updateDebugPanel = useCallback(() => {
+    if (debugPanelRef.current) {
+      const spans = debugPanelRef.current.querySelectorAll("[data-debug]");
+      spans.forEach((el) => {
+        const key = el.getAttribute("data-debug");
+        if (key === "raw") el.textContent = debugSpokenRef.current;
+        if (key === "norm") el.textContent = debugNormalizedRef.current;
+        if (key === "cmp") el.textContent = debugExpectedRef.current;
+      });
+    }
+  }, []);
 
   const playErrorSound = useCallback(() => {
     const now = Date.now();
@@ -123,10 +139,10 @@ export default function Home() {
       setCurrentVerseIndex(0);
       setCurrentWordIndex(0);
       setRevealedWords([]);
-      setErrorCount(0);
-      setDebugSpokenText("");
-      setDebugNormalizedSpoken("");
-      setDebugExpectedWord("");
+      debugSpokenRef.current = "";
+      debugNormalizedRef.current = "";
+      debugExpectedRef.current = "";
+      updateDebugPanel();
       setIsSidebarOpen(false);
       setWrongWordFlash(null);
       setShowMistakesReview(false);
@@ -138,6 +154,10 @@ export default function Home() {
       consecutiveMissRef.current = 0;
       if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
       if (wrongWordTimerRef.current) clearTimeout(wrongWordTimerRef.current);
+      if (interimDisplayRef.current) {
+        interimDisplayRef.current.textContent = "";
+        interimDisplayRef.current.style.opacity = "0";
+      }
 
       fetch(`/api/verses?surah=${selectedSurah}`)
         .then((res) => res.json())
@@ -167,13 +187,33 @@ export default function Home() {
     isListeningRef.current = isListening;
   }, [isListening]);
 
-  // Auto-scroll to current word
+  // Cleanup SpeechRecognition + timers on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.onend = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.onresult = null;
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+      }
+      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+      if (wrongWordTimerRef.current) clearTimeout(wrongWordTimerRef.current);
+      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+      isListeningRef.current = false;
+    };
+  }, []);
+
+  // Auto-scroll to current word (debounced to prevent competing smooth-scroll animations)
   useEffect(() => {
     if (currentWordRef.current && isListening) {
-      currentWordRef.current.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
+      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+      scrollTimerRef.current = setTimeout(() => {
+        currentWordRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+      }, 80);
     }
   }, [currentVerseIndex, currentWordIndex, isListening]);
 
@@ -186,11 +226,8 @@ export default function Home() {
   }, [revealedWords]);
 
   const mistakesByVerse = useMemo(() => {
-    const totalW = verses.reduce(
-      (acc, v) => acc + v.text.split(/\s+/).length,
-      0,
-    );
-    if (totalW === 0 || revealedWords.length < totalW) return [];
+    const tw = normalizedVerses.reduce((acc, nv) => acc + nv.originalWords.length, 0);
+    if (tw === 0 || revealedWords.length < tw) return [];
     const verseErrorMap = new Map<number, WordStatus[]>();
     for (const rw of revealedWords) {
       if (!rw.isCorrect) {
@@ -199,21 +236,20 @@ export default function Home() {
         verseErrorMap.set(rw.verseNumber, existing);
       }
     }
-    return verses
-      .filter((v) => verseErrorMap.has(v.verse))
-      .map((v) => {
-        const words = v.text.split(/\s+/);
-        const mistakes = verseErrorMap.get(v.verse) || [];
+    return normalizedVerses
+      .filter((nv) => verseErrorMap.has(nv.verse))
+      .map((nv) => {
+        const mistakes = verseErrorMap.get(nv.verse) || [];
         return {
-          verse: v,
-          words,
+          verse: { chapter: 0, verse: nv.verse, text: nv.originalWords.join(" ") },
+          words: nv.originalWords,
           mistakeCount: mistakes.length,
           verseAccuracy: Math.round(
-            ((words.length - mistakes.length) / words.length) * 100,
+            ((nv.originalWords.length - mistakes.length) / nv.originalWords.length) * 100,
           ),
         };
       });
-  }, [revealedWords, verses]);
+  }, [revealedWords, normalizedVerses]);
 
   const processNewWords = useCallback(
     (spokenWords: string[]) => {
@@ -264,7 +300,8 @@ export default function Home() {
           const isCorrect = fuzzyMatchArabic(spokenWord, expectedWord);
 
           if (spokenIdx === 0) {
-            setDebugExpectedWord(`"${expectedWord}" ← "${spokenWord}"`);
+            debugExpectedRef.current = `"${expectedWord}" ← "${spokenWord}"`;
+            updateDebugPanel();
           }
 
           newReveals.push({
@@ -289,7 +326,6 @@ export default function Home() {
           vIdxRef.current = vIdx;
           wIdxRef.current = wIdx;
           setRevealedWords((prev) => [...prev, ...newReveals]);
-          setErrorCount((prev) => prev + newErrors);
           setCurrentVerseIndex(vIdx);
           setCurrentWordIndex(wIdx);
         }
@@ -376,9 +412,8 @@ export default function Home() {
             const isCorrect = fuzzyMatchArabic(spokenWord, expectedWord);
 
             if (spokenIdx === 0) {
-              setDebugExpectedWord(
-                `\u2713 \u0642\u0641\u0632 ${foundPosition} \u2190 "${spokenWord}"`,
-              );
+              debugExpectedRef.current = `\u2713 \u0642\u0641\u0632 ${foundPosition} \u2190 "${spokenWord}"`;
+              updateDebugPanel();
             }
 
             matchReveals.push({
@@ -403,12 +438,6 @@ export default function Home() {
             vIdxRef.current = matchV;
             wIdxRef.current = matchW;
             setRevealedWords((prev) => [...prev, ...allReveals]);
-            setErrorCount(
-              (prev) =>
-                prev +
-                skippedReveals.length +
-                matchReveals.filter((r) => !r.isCorrect).length,
-            );
             setCurrentVerseIndex(matchV);
             setCurrentWordIndex(matchW);
           }
@@ -441,7 +470,6 @@ export default function Home() {
               vIdxRef.current = newVIdx;
               wIdxRef.current = newWIdx;
               setRevealedWords((prev) => [...prev, reveal]);
-              setErrorCount((prev) => prev + 1);
               setCurrentVerseIndex(newVIdx);
               setCurrentWordIndex(newWIdx);
             }
@@ -458,7 +486,7 @@ export default function Home() {
         }
       }
     },
-    [playErrorSound],
+    [playErrorSound, updateDebugPanel],
   );
 
   const startRecording = useCallback(() => {
@@ -481,15 +509,20 @@ export default function Home() {
     recognition.maxAlternatives = 1;
 
     recognition.onresult = (event: any) => {
-      // Show the latest interim/final transcript in debug for real-time feedback
       const latestResult = event.results[event.results.length - 1];
       const latestTranscript = latestResult[0].transcript;
-      if (latestTranscript) {
-        setDebugSpokenText(latestTranscript);
+
+      // Update interim display directly via DOM — zero re-render cost
+      if (interimDisplayRef.current) {
+        if (!latestResult.isFinal && latestTranscript) {
+          interimDisplayRef.current.textContent = latestTranscript;
+          interimDisplayRef.current.style.opacity = "1";
+        } else {
+          interimDisplayRef.current.style.opacity = "0";
+        }
       }
 
-      // Only process FINAL results for word advancement — interim results are
-      // unstable and change over time, causing phantom extra words
+      // Only process FINAL results for word advancement
       for (
         let i = lastProcessedFinalIndexRef.current;
         i < event.results.length;
@@ -504,11 +537,15 @@ export default function Home() {
           continue;
         }
 
+        // Update debug refs (zero re-render cost)
+        debugSpokenRef.current = transcript;
+
         const normalizedSpoken = normalizeArabic(transcript);
         const words = normalizedSpoken.split(/\s+/).filter(Boolean);
 
         if (words.length > 0) {
-          setDebugNormalizedSpoken(words.join(" "));
+          debugNormalizedRef.current = words.join(" ");
+          updateDebugPanel();
           processNewWords(words);
         }
 
@@ -569,10 +606,10 @@ export default function Home() {
     setCurrentVerseIndex(0);
     setCurrentWordIndex(0);
     setRevealedWords([]);
-    setErrorCount(0);
-    setDebugSpokenText("");
-    setDebugNormalizedSpoken("");
-    setDebugExpectedWord("");
+    debugSpokenRef.current = "";
+    debugNormalizedRef.current = "";
+    debugExpectedRef.current = "";
+    updateDebugPanel();
     setWrongWordFlash(null);
     setShowMistakesReview(false);
 
@@ -583,6 +620,10 @@ export default function Home() {
     consecutiveMissRef.current = 0;
     if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
     if (wrongWordTimerRef.current) clearTimeout(wrongWordTimerRef.current);
+    if (interimDisplayRef.current) {
+      interimDisplayRef.current.textContent = "";
+      interimDisplayRef.current.style.opacity = "0";
+    }
   };
 
   const filteredSurahs = useMemo(() => {
@@ -593,24 +634,38 @@ export default function Home() {
     );
   }, [surahs, searchTerm]);
 
-  const selectedSurahData = surahs.find((s) => s.number === selectedSurah);
+  const selectedSurahData = useMemo(
+    () => surahs.find((s) => s.number === selectedSurah),
+    [surahs, selectedSurah],
+  );
 
   const totalWords = useMemo(() => {
-    return verses.reduce((acc, v) => acc + v.text.split(/\s+/).length, 0);
-  }, [verses]);
+    return normalizedVerses.reduce((acc, nv) => acc + nv.originalWords.length, 0);
+  }, [normalizedVerses]);
 
-  const accuracy =
-    revealedWords.length > 0
-      ? Math.round(
-          (revealedWords.filter((w) => w.isCorrect).length /
-            revealedWords.length) *
-            100,
-        )
-      : 0;
+  const errorCount = useMemo(
+    () => revealedWords.filter((w) => !w.isCorrect).length,
+    [revealedWords],
+  );
 
-  const progressPercent =
-    totalWords > 0 ? (revealedWords.length / totalWords) * 100 : 0;
-  const isComplete = totalWords > 0 && revealedWords.length >= totalWords;
+  const accuracy = useMemo(
+    () =>
+      revealedWords.length > 0
+        ? Math.round(
+            ((revealedWords.length - errorCount) / revealedWords.length) * 100,
+          )
+        : 0,
+    [revealedWords, errorCount],
+  );
+
+  const progressPercent = useMemo(
+    () => (totalWords > 0 ? (revealedWords.length / totalWords) * 100 : 0),
+    [revealedWords.length, totalWords],
+  );
+  const isComplete = useMemo(
+    () => totalWords > 0 && revealedWords.length >= totalWords,
+    [revealedWords.length, totalWords],
+  );
 
   return (
     <div className="h-screen flex flex-col md:flex-row bg-[#FDFBF7]" dir="rtl">
@@ -869,52 +924,32 @@ export default function Home() {
                     className="text-2xl md:text-4xl leading-[3.5rem] md:leading-[5.5rem] text-center"
                     style={{ fontFamily: "var(--font-amiri), Amiri, serif" }}
                   >
-                    {verses.map((verse, vIdx) => {
-                      const words = verse.text.split(/\s+/);
-                      return (
-                        <span key={verse.verse} className="inline">
-                          {words.map((word, wIdx) => {
-                            const revealed = revealedMap.get(
-                              `${verse.verse}-${wIdx}`,
-                            );
-                            const isCurrent =
-                              vIdx === currentVerseIndex &&
-                              wIdx === currentWordIndex &&
-                              isListening;
-
-                            return (
-                              <span
-                                key={`${verse.verse}-${wIdx}`}
-                                className="inline-block mx-0.5 md:mx-1"
-                                ref={isCurrent ? currentWordRef : undefined}
-                              >
-                                {!revealed ? (
-                                  <span
-                                    className={`inline-block rounded-full transition-all duration-300 ${
-                                      isCurrent
-                                        ? "bg-amber-100 animate-breathe h-4 md:h-5"
-                                        : "bg-emerald-50/80 animate-shimmer h-3 md:h-4"
-                                    }`}
-                                    style={{
-                                      width: `${Math.max(1.5, word.length * 0.55)}rem`,
-                                    }}
-                                  />
-                                ) : (
-                                  <span
-                                    className={`inline ${revealed.isCorrect ? "text-emerald-900 animate-correct" : "text-rose-600 font-bold underline decoration-rose-200 decoration-2 underline-offset-4 animate-wrong bg-rose-50/50 rounded px-0.5"}`}
-                                  >
-                                    {word}
-                                  </span>
-                                )}
-                              </span>
-                            );
-                          })}
-                          <span className="inline-flex items-center text-lg md:text-2xl text-amber-500/40 font-serif mx-1 md:mx-3 select-none">
-                            ﴿{verse.verse}﴾
-                          </span>
+                    {normalizedVerses.map((nv, vIdx) => (
+                      <span key={nv.verse} className="inline">
+                        {nv.originalWords.map((word, wIdx) => {
+                          const revealed = revealedMap.get(
+                            `${nv.verse}-${wIdx}`,
+                          );
+                          const isCurrent =
+                            vIdx === currentVerseIndex &&
+                            wIdx === currentWordIndex &&
+                            isListening;
+                          return (
+                            <VerseWord
+                              key={`${nv.verse}-${wIdx}`}
+                              ref={isCurrent ? currentWordRef : null}
+                              word={word}
+                              isRevealed={!!revealed}
+                              isCorrect={revealed?.isCorrect ?? false}
+                              isCurrent={isCurrent}
+                            />
+                          );
+                        })}
+                        <span className="inline-flex items-center text-lg md:text-2xl text-amber-500/40 font-serif mx-1 md:mx-3 select-none">
+                          ﴿{nv.verse}﴾
                         </span>
-                      );
-                    })}
+                      </span>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -1205,25 +1240,36 @@ export default function Home() {
           </div>
         )}
 
+        {/* ─── Interim Transcript (live speech feedback via DOM ref, zero re-renders) ─── */}
+        {selectedSurah && !loadingVerses && !isComplete && (
+          <div className="fixed bottom-32 md:bottom-36 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
+            <div
+              ref={interimDisplayRef}
+              className="text-sm md:text-base text-emerald-700/50 bg-white/80 backdrop-blur-sm rounded-full px-5 py-1.5 shadow-sm border border-emerald-100/50 transition-opacity duration-300 max-w-xs md:max-w-md truncate"
+              style={{ fontFamily: "var(--font-amiri), Amiri, serif", opacity: 0 }}
+            />
+          </div>
+        )}
+
         {/* ─── Control Panel (centered) ─── */}
         {selectedSurah && !loadingVerses && !isComplete && (
           <div className="fixed bottom-0 left-1/2 right-1/2 z-30 pb-4 md:pb-6 pt-4 pointer-events-none flex flex-col justify-center items-center">
             <div className="pointer-events-auto">
               {/* Debug panel (toggleable) */}
-              {showDebug && debugSpokenText && (
+              {showDebug && (
                 <div className="mb-2 animate-slide-up">
-                  <div className="bg-gray-900/90 backdrop-blur-md text-gray-200 px-4 py-2 rounded-xl text-xs shadow-2xl border border-gray-700/50 space-y-1 font-mono">
+                  <div ref={debugPanelRef} className="bg-gray-900/90 backdrop-blur-md text-gray-200 px-4 py-2 rounded-xl text-xs shadow-2xl border border-gray-700/50 space-y-1 font-mono">
                     <div className="flex gap-2">
                       <span className="text-gray-500">raw:</span>
-                      <span className="truncate">{debugSpokenText}</span>
+                      <span data-debug="raw" className="truncate">{debugSpokenRef.current}</span>
                     </div>
                     <div className="flex gap-2">
                       <span className="text-gray-500">norm:</span>
-                      <span className="truncate">{debugNormalizedSpoken}</span>
+                      <span data-debug="norm" className="truncate">{debugNormalizedRef.current}</span>
                     </div>
                     <div className="flex gap-2">
                       <span className="text-gray-500">cmp:</span>
-                      <span className="truncate">{debugExpectedWord}</span>
+                      <span data-debug="cmp" className="truncate">{debugExpectedRef.current}</span>
                     </div>
                   </div>
                 </div>
@@ -1309,6 +1355,44 @@ export default function Home() {
     </div>
   );
 }
+
+/* ─── Memoized Verse Word (prevents re-rendering all ~4000 words on each state change) ─── */
+const VerseWord = memo(
+  forwardRef<
+    HTMLSpanElement,
+    {
+      word: string;
+      isRevealed: boolean;
+      isCorrect: boolean;
+      isCurrent: boolean;
+    }
+  >(function VerseWord({ word, isRevealed, isCorrect, isCurrent }, ref) {
+    return (
+      <span className="inline-block mx-0.5 md:mx-1" ref={ref}>
+        {!isRevealed ? (
+          <span
+            className={`inline-block rounded-full transition-all duration-300 ${
+              isCurrent
+                ? "bg-amber-100 animate-breathe h-4 md:h-5"
+                : "bg-emerald-50/80 h-3 md:h-4"
+            }`}
+            style={{ width: `${Math.max(1.5, word.length * 0.55)}rem` }}
+          />
+        ) : (
+          <span
+            className={`inline ${
+              isCorrect
+                ? "text-emerald-900 animate-correct"
+                : "text-rose-600 font-bold underline decoration-rose-200 decoration-2 underline-offset-4 animate-wrong bg-rose-50/50 rounded px-0.5"
+            }`}
+          >
+            {word}
+          </span>
+        )}
+      </span>
+    );
+  }),
+);
 
 /* ─── Sub-Components ─── */
 
