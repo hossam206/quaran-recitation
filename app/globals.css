@@ -299,3 +299,29 @@ body {
   to { transform: rotate(360deg); }
 }
 .animate-spin-slow { animation: spinSlow 12s linear infinite; }
+
+/* ─── Reduced Motion: disable all decorative animations for accessibility + low-end devices ─── */
+@media (prefers-reduced-motion: reduce) {
+  .animate-shimmer,
+  .animate-breathe,
+  .animate-sonar,
+  .animate-sonar-delayed,
+  .animate-progress-glow,
+  .animate-progress-shine,
+  .animate-float-slow,
+  .animate-float-medium,
+  .animate-spin-slow,
+  .sound-bar-1,
+  .sound-bar-2,
+  .sound-bar-3,
+  .sparkle-1,
+  .sparkle-2,
+  .sparkle-3,
+  .sparkle-4 {
+    animation: none !important;
+  }
+  .animate-correct { animation-duration: 0.01s !important; }
+  .animate-wrong { animation-duration: 0.01s !important; }
+  .animate-fade-in-up { animation-duration: 0.01s !important; }
+  .animate-slide-up { animation-duration: 0.01s !important; }
+}

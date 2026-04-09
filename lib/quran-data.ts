@@ -148,9 +148,24 @@ export function levenshteinDistance(a: string, b: string): number {
 }
 
 /**
+ * Strip the Arabic definite article "ال" prefix for comparison.
+ * The Web Speech API often drops or adds it inconsistently.
+ */
+function stripDefiniteArticle(word: string): string {
+  if (word.length > 3 && word.startsWith("\u0627\u0644")) {
+    return word.slice(2);
+  }
+  return word;
+}
+
+/**
  * Fuzzy match two Arabic words, tolerating speech recognition variance.
- * Scales tolerance with word length — longer Arabic words have more
- * recognition variance from the Web Speech API.
+ *
+ * Strategy (checked in order):
+ * 1. Exact match
+ * 2. Match after stripping definite article "ال" from either side
+ * 3. One word is a prefix/suffix of the other (≥60% overlap)
+ * 4. Levenshtein distance scaled by word length
  */
 export function fuzzyMatchArabic(spoken: string, expected: string): boolean {
   if (spoken === expected) return true;
@@ -159,10 +174,27 @@ export function fuzzyMatchArabic(spoken: string, expected: string): boolean {
   // Very short words: exact match only
   if (expected.length <= 2 && spoken.length <= 2) return false;
 
+  // Check after stripping definite article — speech API often drops "ال"
+  const spokenBare = stripDefiniteArticle(spoken);
+  const expectedBare = stripDefiniteArticle(expected);
+  if (spokenBare === expectedBare) return true;
+
+  // Prefix/suffix containment — speech API may truncate or extend words
+  const shorter = spoken.length <= expected.length ? spoken : expected;
+  const longer = spoken.length > expected.length ? spoken : expected;
+  if (shorter.length >= 3) {
+    if (
+      (longer.startsWith(shorter) || longer.endsWith(shorter)) &&
+      shorter.length / longer.length >= 0.6
+    ) {
+      return true;
+    }
+  }
+
+  // Levenshtein distance — scale tolerance with word length
   const maxLen = Math.max(spoken.length, expected.length);
   const distance = levenshteinDistance(spoken, expected);
 
-  // Scale tolerance with word length
   if (maxLen <= 4) return distance <= 1;
   if (maxLen <= 7) return distance <= 2;
   return distance <= 3;

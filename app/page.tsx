@@ -233,11 +233,8 @@ export default function Home() {
   }, [revealedWords]);
 
   const mistakesByVerse = useMemo(() => {
-    const totalW = verses.reduce(
-      (acc, v) => acc + v.text.split(/\s+/).length,
-      0,
-    );
-    if (totalW === 0 || revealedWords.length < totalW) return [];
+    const tw = normalizedVerses.reduce((acc, nv) => acc + nv.originalWords.length, 0);
+    if (tw === 0 || revealedWords.length < tw) return [];
     const verseErrorMap = new Map<number, WordStatus[]>();
     for (const rw of revealedWords) {
       if (!rw.isCorrect) {
@@ -246,21 +243,20 @@ export default function Home() {
         verseErrorMap.set(rw.verseNumber, existing);
       }
     }
-    return verses
-      .filter((v) => verseErrorMap.has(v.verse))
-      .map((v) => {
-        const words = v.text.split(/\s+/);
-        const mistakes = verseErrorMap.get(v.verse) || [];
+    return normalizedVerses
+      .filter((nv) => verseErrorMap.has(nv.verse))
+      .map((nv) => {
+        const mistakes = verseErrorMap.get(nv.verse) || [];
         return {
-          verse: v,
-          words,
+          verse: { chapter: 0, verse: nv.verse, text: nv.originalWords.join(" ") },
+          words: nv.originalWords,
           mistakeCount: mistakes.length,
           verseAccuracy: Math.round(
-            ((words.length - mistakes.length) / words.length) * 100,
+            ((nv.originalWords.length - mistakes.length) / nv.originalWords.length) * 100,
           ),
         };
       });
-  }, [revealedWords, verses]);
+  }, [revealedWords, normalizedVerses]);
 
   const processNewWords = useCallback(
     (spokenWords: string[]) => {
@@ -611,7 +607,7 @@ export default function Home() {
         if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
         restartTimerRef.current = setTimeout(() => {
           if (isListeningRef.current) startRecording();
-        }, 300);
+        }, 150);
       }
     };
 
@@ -621,7 +617,7 @@ export default function Home() {
         if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
         restartTimerRef.current = setTimeout(() => {
           if (isListeningRef.current) startRecording();
-        }, 300);
+        }, 150);
       }
     };
 
@@ -887,9 +883,9 @@ export default function Home() {
 
       {/* ─── Main Content ─── */}
       <main className="flex-1 flex flex-col relative overflow-hidden h-full top-band">
-        {/* Background blobs — layered gradients with drift */}
+        {/* Background blobs — smaller + less blur on mobile for GPU performance */}
         <div
-          className="absolute top-0 right-0 w-[28rem] h-[28rem] rounded-full blur-3xl opacity-40 -mr-48 -mt-48 pointer-events-none"
+          className="absolute top-0 right-0 w-[16rem] h-[16rem] md:w-[28rem] md:h-[28rem] rounded-full blur-xl md:blur-3xl opacity-40 -mr-32 md:-mr-48 -mt-32 md:-mt-48 pointer-events-none will-change-transform"
           style={{
             background:
               "radial-gradient(circle, rgba(16,185,129,0.3) 0%, rgba(5,150,105,0.1) 50%, transparent 70%)",
@@ -897,7 +893,7 @@ export default function Home() {
           }}
         />
         <div
-          className="absolute bottom-0 left-0 w-[28rem] h-[28rem] rounded-full blur-3xl opacity-40 -ml-48 -mb-48 pointer-events-none"
+          className="absolute bottom-0 left-0 w-[16rem] h-[16rem] md:w-[28rem] md:h-[28rem] rounded-full blur-xl md:blur-3xl opacity-40 -ml-32 md:-ml-48 -mb-32 md:-mb-48 pointer-events-none will-change-transform"
           style={{
             background:
               "radial-gradient(circle, rgba(251,191,36,0.25) 0%, rgba(245,158,11,0.1) 50%, transparent 70%)",
@@ -905,7 +901,7 @@ export default function Home() {
           }}
         />
         <div
-          className="absolute top-1/2 left-1/3 w-[20rem] h-[20rem] rounded-full blur-3xl opacity-20 pointer-events-none"
+          className="hidden md:block absolute top-1/2 left-1/3 w-[20rem] h-[20rem] rounded-full blur-3xl opacity-20 pointer-events-none will-change-transform"
           style={{
             background:
               "radial-gradient(circle, rgba(244,63,94,0.15) 0%, transparent 70%)",
