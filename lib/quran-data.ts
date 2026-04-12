@@ -22,6 +22,8 @@ const RE_ALEF_MAQSURA = /\u0649/g;
 const RE_TAA_MARBUTA = /\u0629/g;
 const RE_HAMZA_WAW = /\u0624/g;
 const RE_HAMZA_YA = /\u0626/g;
+const RE_TATWEEL = /\u0640/g;
+const RE_SMALL_SIGNS = /[\u06D6-\u06ED\u06E1\u06E5\u06E6]/g;
 const RE_WHITESPACE = /\s+/g;
 
 // Pre-compiled letter mapping regexes (longest patterns first for greedy matching)
@@ -94,6 +96,11 @@ export function stripDiacritics(text: string): string {
 export function normalizeArabic(text: string): string {
   // Convert superscript alef to regular alef BEFORE stripping diacritics.
   let normalized = text.replace(RE_SUPERSCRIPT_ALEF, "\u0627");
+
+  // Strip tatweel (ـ kashida) — Quranic text has 147+ of these, speech API never outputs them
+  normalized = normalized.replace(RE_TATWEEL, "");
+  // Strip small Quranic annotation signs (ۡ ۥ ۦ etc.)
+  normalized = normalized.replace(RE_SMALL_SIGNS, "");
 
   normalized = stripDiacritics(normalized);
 
