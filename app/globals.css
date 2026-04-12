@@ -179,22 +179,20 @@ body {
   animation: progressGlow 2s ease-in-out infinite;
 }
 
-/* ─── Islamic Geometric Background Pattern ─── */
+/* ─── Islamic Geometric Background Pattern (simplified for GPU perf) ─── */
 .islamic-pattern-bg {
   position: relative;
 }
 .islamic-pattern-bg::before {
   content: '';
-  position: absolute;
+  position: fixed;
   inset: 0;
-  opacity: 0.03;
+  opacity: 0.025;
   pointer-events: none;
   z-index: 0;
   background-image:
     repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(5,150,105,1) 39px, rgba(5,150,105,1) 40px),
-    repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(5,150,105,1) 39px, rgba(5,150,105,1) 40px),
-    repeating-linear-gradient(45deg, transparent, transparent 27px, rgba(5,150,105,1) 27px, rgba(5,150,105,1) 28px),
-    repeating-linear-gradient(-45deg, transparent, transparent 27px, rgba(5,150,105,1) 27px, rgba(5,150,105,1) 28px);
+    repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(5,150,105,1) 39px, rgba(5,150,105,1) 40px);
 }
 
 /* ─── Floating Background Blob Drift ─── */

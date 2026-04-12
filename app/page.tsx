@@ -283,7 +283,6 @@ export default function Home() {
       if (isSequential) {
         let spokenIdx = 0;
         const newReveals: WordStatus[] = [];
-        let newErrors = 0;
 
         while (
           vIdx < localNormalizedVerses.length &&
@@ -319,7 +318,6 @@ export default function Home() {
           });
 
           if (!isCorrect) {
-            newErrors++;
             playErrorSound();
           }
 
@@ -722,7 +720,7 @@ export default function Home() {
       dir="rtl"
     >
       {/* ─── Mobile Header ─── */}
-      <div className="md:hidden bg-white/80 backdrop-blur-md border-b border-emerald-100 p-4 flex items-center justify-between z-40 sticky top-0">
+      <div className="md:hidden bg-white border-b border-emerald-100 p-4 flex items-center justify-between z-40 sticky top-0">
         <button
           onClick={() => setIsSidebarOpen(true)}
           className="p-2 bg-emerald-50 text-emerald-600 rounded-xl active:scale-95 transition-transform"
@@ -753,7 +751,7 @@ export default function Home() {
       {/* ─── Sidebar ─── */}
       <aside
         className={`
-        fixed inset-0 z-50 md:relative md:z-20 w-full md:w-80 bg-gradient-to-b from-white/80 via-white/70 to-emerald-50/50 backdrop-blur-2xl border-l border-emerald-100/50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out sidebar-glass
+        fixed inset-0 z-50 md:relative md:z-20 w-full md:w-80 bg-gradient-to-b from-white via-white to-emerald-50/80 border-l border-emerald-100/50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out sidebar-glass
         ${isSidebarOpen ? "translate-x-0" : "translate-x-full md:translate-x-0"}
       `}
       >
@@ -933,7 +931,7 @@ export default function Home() {
 
               <div className="flex gap-2">
                 {/* Accuracy */}
-                <div className="bg-white/80 backdrop-blur border border-emerald-100 px-3 md:px-4 py-2 rounded-2xl flex items-center gap-2 shadow-sm ring-1 ring-emerald-50">
+                <div className="bg-white border border-emerald-100 px-3 md:px-4 py-2 rounded-2xl flex items-center gap-2 shadow-sm ring-1 ring-emerald-50">
                   <div className="relative w-10 h-10">
                     <svg className="w-10 h-10 -rotate-90" viewBox="0 0 36 36">
                       <circle
@@ -984,7 +982,7 @@ export default function Home() {
 
                 {/* Errors */}
                 <div
-                  className={`backdrop-blur border px-3 md:px-4 py-2 rounded-2xl flex items-center gap-2 shadow-sm ring-1 transition-colors ${errorCount > 0 ? "bg-rose-50/80 border-rose-100 ring-rose-50" : "bg-white/80 border-emerald-100 ring-emerald-50"}`}
+                  className={`border px-3 md:px-4 py-2 rounded-2xl flex items-center gap-2 shadow-sm ring-1 transition-colors ${errorCount > 0 ? "bg-rose-50 border-rose-100 ring-rose-50" : "bg-white border-emerald-100 ring-emerald-50"}`}
                 >
                   <span
                     className={`text-lg md:text-xl font-black ${errorCount > 0 ? "text-rose-500" : "text-emerald-300"}`}
@@ -1193,7 +1191,7 @@ export default function Home() {
                 )}
 
                 {/* ─── Verse Display ─── */}
-                <div className="relative bg-white/90 backdrop-blur-sm rounded-[1.5rem] md:rounded-[2rem] border border-white shadow-2xl shadow-emerald-100/20 p-6 md:p-16 verse-card-corners">
+                <div className="relative bg-white rounded-[1.5rem] md:rounded-[2rem] border border-emerald-100/30 shadow-2xl shadow-emerald-100/20 p-6 md:p-16 verse-card-corners">
                   {/* Corner ornaments */}
                   <div className="corner corner-tr" />
                   <div className="corner corner-tl" />
@@ -1218,7 +1216,7 @@ export default function Home() {
         {/* ─── Completion Overlay ─── */}
         {isComplete && (
           <div
-            className="absolute inset-0 z-40 backdrop-blur-lg animate-fade-in-up"
+            className="absolute inset-0 z-40 animate-fade-in-up"
             style={{
               background:
                 "radial-gradient(ellipse at center, rgba(255,255,255,0.95) 0%, rgba(236,253,245,0.85) 50%, rgba(255,255,255,0.9) 100%)",
@@ -1342,7 +1340,7 @@ export default function Home() {
               /* ─── Mistakes Review View ─── */
               <div className="w-full h-full flex flex-col">
                 {/* Sticky Header */}
-                <div className="sticky top-0 z-10 bg-white/90 backdrop-blur-md border-b border-rose-100 px-4 md:px-8 py-4">
+                <div className="sticky top-0 z-10 bg-white border-b border-rose-100 px-4 md:px-8 py-4">
                   <div className="max-w-3xl mx-auto flex items-center justify-between">
                     <button
                       onClick={() => setShowMistakesReview(false)}
@@ -1436,7 +1434,7 @@ export default function Home() {
                     {mistakesByVerse.map((item, idx) => (
                       <div
                         key={item.verse.verse}
-                        className="bg-white/90 backdrop-blur-sm border border-white rounded-2xl shadow-lg shadow-emerald-100/10 overflow-hidden animate-fade-in-up-fast"
+                        className="bg-white border border-emerald-100/30 rounded-2xl shadow-lg shadow-emerald-100/10 overflow-hidden animate-fade-in-up-fast"
                         style={{
                           animationDelay: `${Math.min(idx * 0.03, 0.3)}s`,
                         }}
@@ -1524,7 +1522,7 @@ export default function Home() {
           <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
             <div className="animate-wrong-flash">
               <div
-                className="bg-rose-500/90 backdrop-blur-md text-white px-8 md:px-12 py-4 md:py-5 rounded-2xl text-2xl md:text-4xl shadow-2xl shadow-rose-300/40 border border-rose-400/50 flex items-center justify-center gap-3"
+                className="bg-rose-500 text-white px-8 md:px-12 py-4 md:py-5 rounded-2xl text-2xl md:text-4xl shadow-2xl shadow-rose-300/40 border border-rose-400/50 flex items-center justify-center gap-3"
                 style={{
                   fontFamily: "var(--font-amiri), Amiri, serif",
                   minWidth: "16rem",
@@ -1542,7 +1540,7 @@ export default function Home() {
           <div className="fixed inset-0 z-40 flex items-center justify-center pointer-events-none">
             <div className="animate-slide-up">
               <div
-                className="bg-amber-500/90 backdrop-blur-md text-white px-8 md:px-12 py-4 md:py-5 rounded-2xl text-3xl md:text-5xl shadow-2xl shadow-amber-300/40 border border-amber-400/50 flex items-center justify-center gap-3"
+                className="bg-amber-500 text-white px-8 md:px-12 py-4 md:py-5 rounded-2xl text-3xl md:text-5xl shadow-2xl shadow-amber-300/40 border border-amber-400/50 flex items-center justify-center gap-3"
                 style={{
                   fontFamily: "var(--font-amiri), Amiri, serif",
                   minWidth: "16rem",
@@ -1560,7 +1558,7 @@ export default function Home() {
           <div className="fixed bottom-32 md:bottom-36 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
             <div
               ref={interimDisplayRef}
-              className="text-sm md:text-base text-emerald-700/50 bg-white/80 backdrop-blur-sm rounded-full px-5 py-1.5 shadow-sm border border-emerald-100/50 transition-opacity duration-300 max-w-xs md:max-w-md truncate"
+              className="text-sm md:text-base text-emerald-700/50 bg-white rounded-full px-5 py-1.5 shadow-sm border border-emerald-100/50 transition-opacity duration-300 max-w-xs md:max-w-md truncate"
               style={{ fontFamily: "var(--font-amiri), Amiri, serif", opacity: 0 }}
             />
           </div>
@@ -1573,7 +1571,7 @@ export default function Home() {
               {/* Debug panel (toggleable) */}
               {showDebug && (
                 <div className="mb-2 animate-slide-up">
-                  <div ref={debugPanelRef} className="bg-gray-900/90 backdrop-blur-md text-gray-200 px-4 py-2 rounded-xl text-xs shadow-2xl border border-gray-700/50 space-y-1 font-mono">
+                  <div ref={debugPanelRef} className="bg-gray-900 text-gray-200 px-4 py-2 rounded-xl text-xs shadow-2xl border border-gray-700/50 space-y-1 font-mono">
                     <div className="flex gap-2">
                       <span className="text-gray-500">raw:</span>
                       <span data-debug="raw" className="truncate">{debugSpokenRef.current}</span>
@@ -1595,7 +1593,7 @@ export default function Home() {
                 <span className="text-[11px] font-semibold text-emerald-700/70">
                   المحاولات
                 </span>
-                <div className="flex items-center gap-1 bg-white/80 backdrop-blur-md rounded-full px-2 py-1 border border-emerald-100/60 shadow-sm">
+                <div className="flex items-center gap-1 bg-white rounded-full px-2 py-1 border border-emerald-100/60 shadow-sm">
                   <button
                     onClick={() => setMaxTries((v) => Math.max(1, v - 1))}
                     className="w-6 h-6 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center text-sm font-bold hover:bg-emerald-100 active:scale-90 transition-all"
@@ -1615,7 +1613,7 @@ export default function Home() {
               </div>
 
               {/* Main control bar */}
-              <div className="relative bg-white/90 backdrop-blur-2xl border border-white/80 rounded-full shadow-2xl shadow-emerald-100/30 px-8 md:px-14 py-3 md:py-4 flex items-center justify-center gap-12 md:gap-10 ring-1 ring-white/60">
+              <div className="relative bg-white border border-emerald-100/30 rounded-full shadow-2xl shadow-emerald-100/30 px-8 md:px-14 py-3 md:py-4 flex items-center justify-center gap-12 md:gap-10 ring-1 ring-emerald-50">
                 {/* Top edge highlight */}
                 <div className="absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-white to-transparent" />
                 {/* Bottom edge highlight */}
