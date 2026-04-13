@@ -109,7 +109,7 @@ export default function StatsNav({
       </nav>
 
       {/* Progress bar */}
-      <div className="relative h-2 bg-emerald-50 mx-4 md:mx-8 rounded-full overflow-hidden ring-1 ring-emerald-100/50">
+      <div className="relative h-2 bg-emerald-100 mx-4 md:mx-8 rounded-full overflow-hidden">
         <div
           className="h-full bg-gradient-to-l from-emerald-400 to-emerald-600 rounded-full transition-all duration-700 ease-out animate-progress-glow relative"
           style={{ width: `${progressPercent}%` }}
