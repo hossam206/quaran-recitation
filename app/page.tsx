@@ -443,18 +443,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* Interim Transcript */}
-        {state.selectedSurah && !state.loadingVerses && !state.isComplete && (
-          <div className="fixed bottom-32 md:bottom-36 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
-            <div
-              ref={state.interimDisplayRef}
-              className="text-sm md:text-base text-emerald-700/50 bg-white rounded-full px-5 py-1.5 shadow-sm border border-emerald-100/50 transition-opacity duration-300 max-w-xs md:max-w-md truncate"
-              style={{ fontFamily: "var(--font-amiri), Amiri, serif", opacity: 0 }}
-            />
-          </div>
-        )}
-
-        {/* Control Panel */}
+        {/* Control Panel (includes interim transcript) */}
         {state.selectedSurah && !state.loadingVerses && !state.isComplete && (
           <ControlPanel
             isListening={state.isListening}
@@ -465,6 +454,7 @@ export default function Home() {
             debugSpokenRef={state.debugSpokenRef}
             debugNormalizedRef={state.debugNormalizedRef}
             debugExpectedRef={state.debugExpectedRef}
+            interimDisplayRef={state.interimDisplayRef}
             onToggleListening={toggleListening}
             onReset={state.handleReset}
             onToggleDebug={() => state.setShowDebug((v) => !v)}
