@@ -125,6 +125,10 @@ export function normalizeArabic(text: string): string {
   // Normalize hamza carriers — speech recognition often drops the hamza
   normalized = normalized.replace(RE_HAMZA_WAW, "\u0648");
   normalized = normalized.replace(RE_HAMZA_YA, "\u064A");
+  // Strip isolated hamza — mobile speech API sometimes outputs standalone ء
+  normalized = normalized.replace(/\u0621/g, "");
+  // Normalize waw-alef sequences — mobile sometimes outputs "وا" oddly
+  normalized = normalized.replace(/\u0648\u0627\u0648/g, "\u0648\u0648");
   // Collapse whitespace
   normalized = normalized.replace(RE_WHITESPACE, " ").trim();
   return normalized;
@@ -163,52 +167,82 @@ export function levenshteinDistance(a: string, b: string): number {
  * The Web Speech API often drops or adds it inconsistently.
  */
 function stripDefiniteArticle(word: string): string {
-  if (word.length > 3 && word.startsWith("\u0627\u0644")) {
+  if (word.length >= 3 && word.startsWith("\u0627\u0644")) {
     return word.slice(2);
   }
   return word;
 }
 
 /**
+ * Strip leading "و" (waw conjunction) — mobile speech API
+ * often merges/splits it inconsistently.
+ */
+function stripWawConjunction(word: string): string {
+  if (word.length >= 3 && word.startsWith("\u0648")) {
+    return word.slice(1);
+  }
+  return word;
+}
+
+/**
  * Fuzzy match two Arabic words, tolerating speech recognition variance.
+ * Tuned for mobile where the speech API is significantly less accurate.
  *
  * Strategy (checked in order):
  * 1. Exact match
  * 2. Match after stripping definite article "ال" from either side
- * 3. One word is a prefix/suffix of the other (≥60% overlap)
- * 4. Levenshtein distance scaled by word length
+ * 3. Match after stripping waw conjunction "و" from either side
+ * 4. One word is a prefix/suffix of the other (≥50% overlap)
+ * 5. Levenshtein distance scaled by word length (relaxed for mobile)
  */
 export function fuzzyMatchArabic(spoken: string, expected: string): boolean {
   if (spoken === expected) return true;
   if (!spoken || !expected) return false;
 
-  // Very short words: exact match only
-  if (expected.length <= 2 && spoken.length <= 2) return false;
+  // Single-char words: exact only (ب، و، etc. are too ambiguous)
+  if (expected.length <= 1 && spoken.length <= 1) return spoken === expected;
+
+  // 2-char words: allow Levenshtein ≤ 1 (من، في، ما, هو — common in Qur'an)
+  if (expected.length <= 2 || spoken.length <= 2) {
+    return levenshteinDistance(spoken, expected) <= 1;
+  }
 
   // Check after stripping definite article — speech API often drops "ال"
   const spokenBare = stripDefiniteArticle(spoken);
   const expectedBare = stripDefiniteArticle(expected);
   if (spokenBare === expectedBare) return true;
 
-  // Prefix/suffix containment — speech API may truncate or extend words
+  // Check with Levenshtein on bare forms too
+  if (spokenBare.length >= 2 && expectedBare.length >= 2) {
+    if (levenshteinDistance(spokenBare, expectedBare) <= 1) return true;
+  }
+
+  // Check after stripping waw conjunction — mobile merges/splits "و" often
+  const spokenNoWaw = stripWawConjunction(spoken);
+  const expectedNoWaw = stripWawConjunction(expected);
+  if (spokenNoWaw === expectedNoWaw) return true;
+  if (spokenNoWaw === expectedBare || spokenBare === expectedNoWaw) return true;
+
+  // Prefix/suffix containment — mobile speech API truncates/extends words
   const shorter = spoken.length <= expected.length ? spoken : expected;
   const longer = spoken.length > expected.length ? spoken : expected;
-  if (shorter.length >= 3) {
+  if (shorter.length >= 2) {
     if (
       (longer.startsWith(shorter) || longer.endsWith(shorter)) &&
-      shorter.length / longer.length >= 0.6
+      shorter.length / longer.length >= 0.5
     ) {
       return true;
     }
   }
 
-  // Levenshtein distance — scale tolerance with word length
+  // Levenshtein distance — relaxed thresholds for mobile speech API accuracy
   const maxLen = Math.max(spoken.length, expected.length);
   const distance = levenshteinDistance(spoken, expected);
 
-  if (maxLen <= 4) return distance <= 1;
-  if (maxLen <= 7) return distance <= 2;
-  return distance <= 3;
+  if (maxLen <= 3) return distance <= 1;
+  if (maxLen <= 5) return distance <= 2;
+  if (maxLen <= 8) return distance <= 3;
+  return distance <= 4;
 }
 
 // Get all surahs

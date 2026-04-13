@@ -108,10 +108,10 @@ export default function StatsNav({
         </div>
       </nav>
 
-      {/* Progress bar */}
-      <div className="relative h-2 bg-emerald-100 mx-4 md:mx-8 rounded-full overflow-hidden">
+      {/* Progress bar — forced LTR so fill + dot go the same direction */}
+      <div dir="ltr" className="relative h-2 bg-emerald-100 mx-4 md:mx-8 rounded-full overflow-hidden">
         <div
-          className="h-full bg-gradient-to-l from-emerald-400 to-emerald-600 rounded-full transition-all duration-700 ease-out animate-progress-glow relative"
+          className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 rounded-full transition-all duration-700 ease-out animate-progress-glow relative"
           style={{ width: `${progressPercent}%` }}
         >
           {/* Shine sweep */}

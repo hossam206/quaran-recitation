@@ -160,7 +160,7 @@ export function useSpeechRecognition(args: UseSpeechRecognitionArgs) {
           setCurrentWordIndex(wIdx);
         }
       } else {
-        const windowSize = 10;
+        const windowSize = 15;
         let searchV = vIdx;
         let searchW = wIdx;
         let foundPosition = -1;
@@ -273,7 +273,26 @@ export function useSpeechRecognition(args: UseSpeechRecognitionArgs) {
             setCurrentWordIndex(matchW);
           }
         } else {
-          // No match found — show what the user said as a wrong word flash
+          // No match in search window — try splitting merged words (mobile often joins two words)
+          if (firstWord.length >= 4) {
+            let splitFound = false;
+            for (let splitAt = 2; splitAt < firstWord.length - 1; splitAt++) {
+              const part1 = firstWord.slice(0, splitAt);
+              const part2 = firstWord.slice(splitAt);
+              if (fuzzyMatchArabic(part1, currentExpectedWord)) {
+                const splitWords = [part1, part2, ...spokenWords.slice(1)];
+                processNewWords(splitWords);
+                splitFound = true;
+                break;
+              }
+            }
+            if (splitFound) {
+              // Split succeeded — skip the wrong word logic
+              return;
+            }
+          }
+
+          // Truly no match — show what the user said as a wrong word flash
           consecutiveMissRef.current++;
           setWrongWordFlash(spokenWords.join(" "));
           playErrorSound();
@@ -341,11 +360,15 @@ export function useSpeechRecognition(args: UseSpeechRecognitionArgs) {
 
     lastProcessedFinalIndexRef.current = 0;
 
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
     const recognition = new SpeechRecognition();
-    recognition.lang = "ar-SA";
+    // Use generic "ar" on mobile — "ar-SA" can be worse on some devices
+    recognition.lang = isMobile ? "ar" : "ar-SA";
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.maxAlternatives = 1;
+    // Request multiple alternatives on mobile for better matching
+    recognition.maxAlternatives = isMobile ? 3 : 1;
 
     recognition.onresult = (event: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
       // Show the latest interim/final transcript in debug for real-time feedback
@@ -371,17 +394,25 @@ export function useSpeechRecognition(args: UseSpeechRecognitionArgs) {
         const result = event.results[i];
         if (!result.isFinal) continue;
 
-        const transcript = result[0].transcript;
-        if (!transcript) {
+        // Try all alternatives — pick the one with best words
+        let bestTranscript = "";
+        for (let altIdx = 0; altIdx < result.length; altIdx++) {
+          const alt = result[altIdx]?.transcript;
+          if (alt && (!bestTranscript || alt.length > bestTranscript.length)) {
+            bestTranscript = alt;
+          }
+        }
+
+        if (!bestTranscript) {
           lastProcessedFinalIndexRef.current = i + 1;
           interimProcessedCountRef.current = 0;
           continue;
         }
 
         // Update debug refs (zero re-render cost)
-        debugSpokenRef.current = transcript;
+        debugSpokenRef.current = bestTranscript;
 
-        const normalizedSpoken = normalizeArabic(transcript);
+        const normalizedSpoken = normalizeArabic(bestTranscript);
         const words = normalizedSpoken.split(/\s+/).filter(Boolean);
 
         // Only process words beyond what interim already handled
@@ -398,13 +429,17 @@ export function useSpeechRecognition(args: UseSpeechRecognitionArgs) {
         lastProcessedFinalIndexRef.current = i + 1;
       }
 
-      // Process interim results in real-time (skip last word — still forming)
+      // Process interim results in real-time
       if (!latestResult.isFinal) {
         const transcript = latestResult[0].transcript;
         if (transcript) {
           const normalizedSpoken = normalizeArabic(transcript);
           const words = normalizedSpoken.split(/\s+/).filter(Boolean);
-          const stableWordCount = Math.max(0, words.length - 1);
+          // On mobile: process all words including last (mobile is slower, less partial)
+          // On desktop: skip last word (still forming)
+          const stableWordCount = isMobile
+            ? words.length
+            : Math.max(0, words.length - 1);
 
           if (stableWordCount > interimProcessedCountRef.current) {
             const newWords = words.slice(
