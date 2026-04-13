@@ -1,12 +1,16 @@
-import { Verse } from "./types";
+import { Verse, WordIndexedVerse } from "./types";
 import surahsData from "@/data/surahs.json";
 import quranData from "@/data/quran.json";
+import quranWordsData from "@/data/quran-words.json";
 
 export interface Surah {
   number: number;
   name: string;
   englishName: string;
 }
+
+// Type for quran-words.json structure
+type QuranWordsData = Record<string, WordIndexedVerse[]>;
 
 // Type for the quran.json structure
 type QuranData = Record<string, Array<{ chapter: number; verse: number; text: string }>>;
@@ -236,4 +240,10 @@ export function getSurahVerses(surahNumber: number): Verse[] {
 export function getVerse(surahNumber: number, ayahNumber: number): Verse | undefined {
   const verses = getSurahVerses(surahNumber);
   return verses.find((v) => v.ayah === ayahNumber);
+}
+
+// Get word-indexed verses for a surah (pre-computed words with normalized forms)
+export function getSurahVersesIndexed(surahNumber: number): WordIndexedVerse[] {
+  const words = quranWordsData as QuranWordsData;
+  return words[String(surahNumber)] ?? [];
 }

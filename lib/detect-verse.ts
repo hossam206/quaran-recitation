@@ -1,5 +1,5 @@
 import { Verse } from "./types";
-import { normalizeArabic, getSurahVerses, getAvailableSurahs } from "./quran-data";
+import { normalizeArabic, fuzzyMatchArabic, getSurahVerses, getAvailableSurahs } from "./quran-data";
 
 export interface DetectedVerse {
   surah: number;
@@ -11,15 +11,19 @@ export interface DetectedVerse {
 
 /**
  * Finds the best matching verse from recognized speech.
- * Uses word overlap similarity to find the closest match.
- * 
+ * Uses a sliding window approach: searches nearby ayahs first,
+ * then expands to the full surah, and finally across all surahs.
+ *
  * @param recognizedText - The transcribed speech text
  * @param surah - Optional surah number to limit search
- * @returns The best matching verse or null if no good match
+ * @param currentAyah - Optional current ayah for sliding window
+ * @param windowSize - Number of ayahs to search in each direction (default: 5)
  */
 export function detectVerse(
   recognizedText: string,
-  surah?: number
+  surah?: number,
+  currentAyah?: number,
+  windowSize = 5,
 ): DetectedVerse | null {
   const normalizedInput = normalizeArabic(recognizedText);
   const inputWords = normalizedInput.split(" ").filter(Boolean);
@@ -28,17 +32,51 @@ export function detectVerse(
     return null;
   }
 
-  // Get verses to search
-  const versesToSearch = surah ? getSurahVerses(surah) : getAllVerses();
+  // Phase 1: Search nearby ayahs (sliding window)
+  if (surah && currentAyah != null) {
+    const verses = getSurahVerses(surah);
+    const windowStart = Math.max(1, currentAyah - 2); // Allow going back 2
+    const windowEnd = currentAyah + windowSize;
 
-  if (versesToSearch.length === 0) {
-    return null;
+    const windowVerses = verses.filter(
+      (v) => v.ayah >= windowStart && v.ayah <= windowEnd,
+    );
+
+    const match = findBestMatch(inputWords, windowVerses);
+    if (match && match.confidence >= 40) {
+      return match;
+    }
   }
+
+  // Phase 2: Search entire surah
+  if (surah) {
+    const verses = getSurahVerses(surah);
+    const match = findBestMatch(inputWords, verses);
+    if (match && match.confidence >= 30) {
+      return match;
+    }
+  }
+
+  // Phase 3: Search all surahs (expensive, used for auto-detection)
+  const allVerses = getAllVerses();
+  const match = findBestMatch(inputWords, allVerses);
+  if (match && match.confidence >= 30) {
+    return match;
+  }
+
+  return null;
+}
+
+/**
+ * Find the best matching verse from a list of candidates.
+ */
+function findBestMatch(inputWords: string[], verses: Verse[]): DetectedVerse | null {
+  if (verses.length === 0) return null;
 
   let bestMatch: DetectedVerse | null = null;
   let bestScore = 0;
 
-  for (const verse of versesToSearch) {
+  for (const verse of verses) {
     const verseWords = verse.textClean.split(" ").filter(Boolean);
     const score = calculateSimilarity(inputWords, verseWords);
 
@@ -54,38 +92,37 @@ export function detectVerse(
     }
   }
 
-  // Minimum threshold - at least 30% similarity to be considered a match
-  if (bestMatch && bestMatch.confidence < 30) {
-    return null;
-  }
-
   return bestMatch;
 }
 
 /**
  * Calculate similarity between two word arrays using Jaccard-like similarity
- * combined with sequential matching bonus for Quran recitation.
+ * combined with sequential matching bonus and fuzzy matching.
  */
 function calculateSimilarity(inputWords: string[], verseWords: string[]): number {
   if (inputWords.length === 0 || verseWords.length === 0) {
     return 0;
   }
 
-  // Count matching words
-  const inputSet = new Set(inputWords);
-  const verseSet = new Set(verseWords);
-  
+  // Count matching words (with fuzzy matching for mispronunciation tolerance)
   let matchCount = 0;
-  for (const word of inputSet) {
-    if (verseSet.has(word)) {
-      matchCount++;
+  const matchedVerseIndices = new Set<number>();
+
+  for (const inputWord of inputWords) {
+    for (let j = 0; j < verseWords.length; j++) {
+      if (matchedVerseIndices.has(j)) continue;
+      if (fuzzyMatchArabic(inputWord, verseWords[j])) {
+        matchCount++;
+        matchedVerseIndices.add(j);
+        break;
+      }
     }
   }
 
-  // Base similarity: what fraction of verse words were found in input
-  const coverage = matchCount / verseSet.size;
+  // Base similarity: fraction of verse words found in input
+  const coverage = matchCount / verseWords.length;
 
-  // Bonus for sequential matching (words appear in correct order)
+  // Bonus for sequential matching (words in correct order)
   const sequentialBonus = calculateSequentialBonus(inputWords, verseWords);
 
   // Combined score: coverage + sequential bonus (weighted)
@@ -94,20 +131,19 @@ function calculateSimilarity(inputWords: string[], verseWords: string[]): number
 
 /**
  * Calculate bonus for words appearing in the correct sequential order.
- * This helps distinguish between verses with similar words.
+ * Uses fuzzy matching for tolerance.
  */
 function calculateSequentialBonus(inputWords: string[], verseWords: string[]): number {
   if (inputWords.length === 0 || verseWords.length === 0) {
     return 0;
   }
 
-  // Find longest increasing subsequence of matching positions
   let lastMatchPos = -1;
   let sequentialMatches = 0;
 
   for (const inputWord of inputWords) {
     for (let i = lastMatchPos + 1; i < verseWords.length; i++) {
-      if (inputWord === verseWords[i]) {
+      if (fuzzyMatchArabic(inputWord, verseWords[i])) {
         sequentialMatches++;
         lastMatchPos = i;
         break;
@@ -119,16 +155,13 @@ function calculateSequentialBonus(inputWords: string[], verseWords: string[]): n
 }
 
 /**
- * Get all verses from the database.
- * In production, this would query a database.
+ * Get all verses from all surahs.
  */
 function getAllVerses(): Verse[] {
   const surahs = getAvailableSurahs();
   const allVerses: Verse[] = [];
-
   for (const surah of surahs) {
     allVerses.push(...getSurahVerses(surah.number));
   }
-
   return allVerses;
 }
